@@ -1,0 +1,19 @@
+{
+  // global Factorio API stuff
+  "Lua.diagnostics.globals": [
+    "script",
+    "settings",
+    "commands",
+    "remote",
+    "defines",
+    "data",
+    "global",
+    "game",
+    "log",
+    "serpent"
+  ],
+  // the Factorio Lua API autocomplete extension knows what to autocomplete, we don't need the Lua Language Server's guesses
+  "Lua.completion.showWord": "Disable",
+  // can't disable a couple things that are buggy/annoying me. TODO: figure out how to get the Lua formatter to work right.
+  "Lua.format.enable": false
+}
