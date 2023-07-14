@@ -1,20 +1,22 @@
 {
-  // global Factorio API stuff
   "Lua.diagnostics.globals": [
-    "script",
-    "settings",
-    "commands",
-    "remote",
-    "rendering",
-    "defines",
-    "data",
-    "global",
-    "game",
-    "log",
-    "serpent"
+    "__Profiler",
+    "__DebugAdapter"
   ],
-  // the Factorio Lua API autocomplete extension knows what to autocomplete, we don't need the Lua Language Server's guesses
-  "Lua.completion.showWord": "Disable",
   // can't disable a couple things that are buggy/annoying me. TODO: figure out how to get the Lua formatter to work right.
-  "Lua.format.enable": false
+  "Lua.format.enable": false,
+  "Lua.runtime.builtin": {
+    "io": "disable",
+    "os": "disable",
+    "math": "disable",
+    "debug": "disable",
+    "coroutine": "disable",
+    "package": "disable"
+  },
+  "Lua.runtime.version": "Lua 5.2",
+  "Lua.runtime.special": {
+    "__object_name": "type"
+  }
+  // when opening the workspace, other people will have to choose "Configure workspace for Factorio" or whatever the notification says
+  // that will auto-generate the settings items for paths on their local filesystem
 }
