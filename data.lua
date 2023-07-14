@@ -1,13 +1,35 @@
-local base_path = "__overhead-electrification__/"
-local graphics = base_path .. "graphics/"
+---@diagnostic disable-next-line: undefined-field
+table.deepcopy = table.deepcopy --- @type function
+
+-- generates a dummy "placer entity" to use it's placement restrictions to a different entity type
+-- ex: transformer has a placer that's a train-stop to force it to be placed next to rails
+local function generate_placer(entity_to_place, placer_prototype, additional_properties)
+  local placer = table.deepcopy(entity_to_place)
+
+  placer.type = placer_prototype
+  placer.name = entity_to_place.name .. "-placer"
+  placer.localised_name = { "entity-name."..entity_to_place.name }
+  placer.localised_description = { "entity-description."..entity_to_place.name }
+
+  for k, v in pairs(additional_properties) do
+    placer[k] = v
+  end
+
+  entity_to_place.placeable_by = {item = entity_to_place.name, count = 1} -- makes Q and blueprints work. place_result must still be set on the item
+
+  return placer
+end
+
+
 
 -- [[ Constants ]] --
-local locomotive_power = 600   -- same consumption as vanilla locomotive
+local base_path = "__overhead-electrification__/"
+local graphics = base_path .. "graphics/"
+local LOCOMOTIVE_POWER = 800   -- vanilla locomotive is 600
 
 
 -- [[ Electric Locomotive ]] --
 
----@diagnostic disable-next-line: undefined-field
 local locomotive = table.deepcopy(data.raw["locomotive"]["locomotive"])
 
 locomotive.name = "oe-electric-locomotive"
@@ -19,7 +41,7 @@ locomotive.burner = {
   fuel_inventory_size = 0,  -- 0 is valid and means no slots appear
   fuel_category = "oe-internal-fuel"
 }
-locomotive.max_power = locomotive_power.."kW"
+locomotive.max_power = LOCOMOTIVE_POWER.."kW"
 locomotive.max_speed = 2 -- vanilla is 1.2
 locomotive.weight = 1200 -- vanilla is 2000 for loco, 1000 for wagons
 
@@ -58,6 +80,16 @@ transformer.icon_size = 64
 transformer.icon_mipmaps = 4
 transformer.maximum_wire_distance = 9 -- medium-electric-pole
 transformer.supply_area_distance = 0.5  -- only inside of it since it's 2x2
+transformer.build_grid_size = 2  -- ensure ghosts also follow the rail grid
+
+-- dummy placement entity, immediatley replaced by the real one in control.lua
+local transformer_placer = generate_placer(transformer, "train-stop", {
+  animation_ticks_per_frame = 1,
+  chart_name = false,
+  flags = data.raw["train-stop"]["train-stop"].flags,  -- add "filter-directions"
+  rail_overlay_animations = data.raw["train-stop"]["train-stop"].rail_overlay_animations,
+  animations = {north=transformer.pictures}
+})
 
 local transformer_item = {
   type = "item",
@@ -66,7 +98,7 @@ local transformer_item = {
   icon_size = transformer.icon_size, icon_mipmaps = transformer.icon_mipmaps,
   subgroup = "train-transport",
   order = "a[train-system]-j[oe-transformer]",
-  place_result = "oe-transformer",
+  place_result = transformer_placer.name,
   stack_size = 50
 }
 
@@ -83,44 +115,50 @@ local transformer_recipe = {
   result = "oe-transformer"
 }
 
-data:extend{transformer, transformer_item, transformer_recipe}
+data:extend{transformer, transformer_placer, transformer_item, transformer_recipe}
 
 
 -- [[ Overhead power line pylons ]] --
 
-local overhead_pylon = table.deepcopy(data.raw["electric-pole"]["medium-electric-pole"])
-overhead_pylon.name = "oe-overhead-pylon"
-overhead_pylon.icons = { {icon = "__base__/graphics/icons/medium-electric-pole.png", tint = {r=1, g=1, b=0.7, a=1}} }
-overhead_pylon.icon_size = 64
-overhead_pylon.icon_mipmaps = 4
-overhead_pylon.minable.result = "oe-overhead-pylon"
-overhead_pylon.maximum_wire_distance = 0   -- doesn't work, will have to prevent automatic connections with script?
-overhead_pylon.supply_area_distance = 0
+local catenary_pole = table.deepcopy(data.raw["electric-pole"]["medium-electric-pole"])
+catenary_pole.name = "oe-catenary-pole"
+catenary_pole.icons = { {icon = "__base__/graphics/icons/medium-electric-pole.png", tint = {r=1, g=1, b=0.7, a=1}} }
+catenary_pole.icon_size = 64
+catenary_pole.icon_mipmaps = 4
+catenary_pole.minable.result = "oe-catenary-pole"
+catenary_pole.maximum_wire_distance = 0  -- all poles are connected to their network's transformer's power pole on the hidden surface
+catenary_pole.supply_area_distance = 0   --  this is done so that all the poles are connected to 
 
-local overhead_pylon_item = {
+-- dummy placement entity, immediatley replaced by the real one in control.lua
+local catenary_pole_placer = generate_placer(catenary_pole, "rail-signal", {
+  flags = data.raw["rail-signal"]["rail-signal"].flags,
+  animation = data.raw["rail-signal"]["rail-signal"].animation,
+})
+
+local catenary_pole_item = {
   type = "item",
-  name = "oe-overhead-pylon",
-  icons = overhead_pylon.icons,
-  icon_size = overhead_pylon.icon_size, icon_mipmaps = overhead_pylon.icon_mipmaps,
+  name = "oe-catenary-pole",
+  icons = catenary_pole.icons,
+  icon_size = catenary_pole.icon_size, icon_mipmaps = catenary_pole.icon_mipmaps,
   subgroup = "train-transport",
-  order = "a[train-system]-k[oe-overhead-pylon]",
-  place_result = "oe-overhead-pylon",
+  order = "a[train-system]-k[oe-catenary-pole]",
+  place_result = catenary_pole_placer.name,
   stack_size = 50
 }
 
-local overhead_pylon_recipe = {
+local catenary_pole_recipe = {
   type = "recipe",
-  name = "oe-overhead-pylon",
+  name = "oe-catenary-pole",
   enabled = false,
   ingredients = {
     {"copper-cable", 10},
     {"steel-plate", 4},
     {"iron-stick", 4}
   },
-  result = "oe-overhead-pylon"
+  result = "oe-catenary-pole"
 }
 
-data:extend{overhead_pylon, overhead_pylon_item, overhead_pylon_recipe}
+data:extend{catenary_pole, catenary_pole_placer, catenary_pole_item, catenary_pole_recipe}
 
 
 -- [[ electric locomotive interface ]] --
@@ -143,8 +181,8 @@ local locomotive_interface = {
   energy_source = {
     type = "electric",
     usage_priority = "secondary-input",
-    buffer_capacity = locomotive_power.."kJ", -- 1 second of operation
-    input_flow_limit = 2*locomotive_power.."kW", -- recharges in 1 second
+    buffer_capacity = LOCOMOTIVE_POWER.."kJ", -- 1 second of operation
+    input_flow_limit = 2*LOCOMOTIVE_POWER.."kW", -- recharges in 1 second (each second: consumes LOCOMOTIVE_POWER kJ, recharges LOCOMOTIVE_POWER kJ into buffer)
     render_no_network_icon = false,  -- when teleported out of the range of the transformer, should not blink the unplugged symbol
     render_no_power_icon = false     -- same with low power symbol
   },
@@ -181,6 +219,23 @@ local internal_fuel_item = {
   fuel_value = "1YJ" -- effectively infinite
 }
 
+-- generate percentage fuels (slow down the loco by x percent using fuel speed & accel modifiers)
+for _, percent in ipairs({75, 50, 25, 5}) do
+  local fuel = table.deepcopy(internal_fuel_item)
+  fuel.name = fuel.name .. "-" .. percent
+  --table.insert(fuel.flags, "hide-from-fuel-tooltip")   -- only the main one should show up in the tooltip
+  --fuel.localised_name = {"item-name.oe-internal-fuel"} -- better name
+  -- this fuel slows down the loco by i percent
+  local multiplier = percent / 100
+  fuel.fuel_top_speed_multiplier = multiplier * 0.8 -- reduce top speed more harshly
+  fuel.fuel_acceleration_multiplier = math.max(multiplier, 0.15) -- prevent 5% from being too slow (would be 0.05)
+  -- and makes the burner.remaining_burning_fuel bar show it's percentage as how much is left by increasing the total burn time
+  fuel.fuel_value = (100 / percent) .. "YJ"
+
+  log("generating internal fuel "..percent.."% with data: "..serpent.block(fuel))
+  data:extend{fuel}
+end
+
 -- the prototype name must be "tooltip-category-" followed by the name of the fuel category for the "Consumes x" tooltip to show the icon
 local internal_fuel_category_tooltip = table.deepcopy(data.raw["sprite"]["tooltip-category-electricity"])
 internal_fuel_category_tooltip.name = "tooltip-category-" .. internal_fuel_category.name
@@ -188,7 +243,7 @@ internal_fuel_category_tooltip.name = "tooltip-category-" .. internal_fuel_categ
 data:extend{internal_fuel_category, internal_fuel_item, internal_fuel_category_tooltip}
 
 
--- [[ Misc ]] --
+-- [[ Technologies ]] --
 
 data:extend{
   { -- Electric railway technology
@@ -205,9 +260,9 @@ data:extend{
         recipe = "oe-transformer"
       }, {
         type = "unlock-recipe",
-        recipe = "oe-overhead-pylon"
+        recipe = "oe-catenary-pole"
       }
-      -- power poles, etc.
+      -- double sided pole, combo catenary & big power pole
     },
     prerequisites = {"railway", "electric-engine", "electric-energy-distribution-1"},
     unit = {
@@ -228,7 +283,7 @@ data:extend{
     icon_size = 256, icon_mipmaps = 4,
     icon = graphics .. "electric-railway-signals.png",
     effects = {
-        -- power poles with built-in signals
+      -- power poles with built-in signals
     },
     prerequisites = {"oe-electric-railway", "rail-signals"},
     unit = {
@@ -245,6 +300,43 @@ data:extend{
   }
 }
 
+
+-- [[ Catenary wire sprites ]] --
+
+local wire_sprite = {
+  type = "sprite",
+  name = "oe-catenary-wire",
+  filename = graphics .. "catenary-wire.png",
+  priority = "extra-high-no-scale",
+  flags = { "no-crop" },
+  width = 224,
+  height = 46,
+  hr_version = {
+    filename = graphics .. "hr-catenary-wire.png",
+    priority = "extra-high-no-scale",
+    flags = { "no-crop" },
+    width = 448,
+    height = 92,
+    scale = 0.5
+  }
+}
+
+local wire_shadow_sprite = table.deepcopy(wire_sprite)
+wire_shadow_sprite.name = "oe-catenary-wire-shadow"
+wire_shadow_sprite.filename = graphics .. "catenary-wire-shadow.png"
+wire_shadow_sprite.hr_version.filename = graphics .. "hr-catenary-wire-shadow.png"
+
+local wire_debug_sprite = table.deepcopy(wire_sprite)
+wire_debug_sprite.name = "oe-debug-wire"
+wire_debug_sprite.filename = graphics .. "debug-wire.png"
+wire_debug_sprite.hr_version.filename = graphics .. "hr-debug-wire.png"
+
+data:extend{wire_sprite, wire_shadow_sprite, wire_debug_sprite}
+
+
+-- TEMP TESTING STUFF BELOW HERE
+
+
 -- testing placement restrictions
 --[[local test_train_stop = table.deepcopy(data.raw["train-stop"]["train-stop"])
 test_train_stop.name = "oe-test-train-stop"
@@ -256,3 +348,16 @@ test_train_stop_item.name = "oe-test-train-stop"
 test_train_stop_item.place_result = "oe-test-train-stop"
 
 data:extend{test_train_stop, test_train_stop_item}]]
+
+
+--[[local test_catenary_pole = table.deepcopy(data.raw["constant-combinator"]["constant-combinator"])
+test_catenary_pole.name = "oe-test-catenary-pole"
+test_catenary_pole.minable.result = "oe-test-catenary-pole"
+test_catenary_pole.item_slot_count = 0
+test_catenary_pole.circuit_wire_max_distance = 30 -- connection distance of caternary wires (same as big power poles)
+
+local test_catenary_pole_item = table.deepcopy(data.raw["item"]["constant-combinator"])
+test_catenary_pole_item.name = "oe-test-catenary-pole"
+test_catenary_pole_item.place_result = "oe-test-catenary-pole"
+
+data:extend{test_catenary_pole, test_catenary_pole_item}]]
