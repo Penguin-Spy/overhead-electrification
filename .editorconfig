@@ -17,3 +17,5 @@ max_line_length = unset
 space_before_function_call_single_arg = only_string
 call_arg_parentheses = remove_table_only
 space_around_table_field_list = false  # also affects normal tables. that's fine
+
+line_space_after_function_statement = keep
