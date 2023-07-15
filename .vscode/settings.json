@@ -3,8 +3,6 @@
     "__Profiler",
     "__DebugAdapter"
   ],
-  // can't disable a couple things that are buggy/annoying me. TODO: figure out how to get the Lua formatter to work right.
-  "Lua.format.enable": false,
   "Lua.runtime.builtin": {
     "io": "disable",
     "os": "disable",

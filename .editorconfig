@@ -1,0 +1,19 @@
+root=true
+
+# https://github.com/CppCXY/EmmyLuaCodeStyle/blob/master/docs/format_config_EN.md
+[*.lua]
+indent_style = space
+indent_size = 2
+
+space_before_inline_comment = 2
+
+# none/single/double -- none means don't change
+quote_style = none
+
+# do not hard wrap lines
+max_line_length = unset
+
+# format function calls with a single table arg to use just curly braces as the function parentheses
+space_before_function_call_single_arg = only_string
+call_arg_parentheses = remove_table_only
+space_around_table_field_list = false  # also affects normal tables. that's fine
