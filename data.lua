@@ -3,6 +3,13 @@
   also defines prototypes for the hidden fuel items & interface entity used to make the locomotive appear to consume electricity
 ]]
 
+-- [[ Constants ]] --
+local base_path = "__overhead-electrification__/"
+local graphics = base_path .. "graphics/"
+local const = require 'constants'
+
+-- [[ Util functions ]] --
+
 -- generates a dummy "placer entity" to use it's placement restrictions to a different entity type
 -- ex: transformer has a placer that's a train-stop to force it to be placed next to rails
 local function generate_placer(entity_to_place, placer_prototype, additional_properties)
@@ -52,13 +59,6 @@ local function mimic(entity_prototype, properties)
 end
 
 
-
--- [[ Constants ]] --
-local base_path = "__overhead-electrification__/"
-local graphics = base_path .. "graphics/"
-local LOCOMOTIVE_POWER = 800  -- vanilla locomotive is 600
-
-
 -- [[ Electric Locomotive ]] --
 
 local locomotive = table.deepcopy(data.raw["locomotive"]["locomotive"])
@@ -72,7 +72,7 @@ locomotive.burner = {
   fuel_inventory_size = 0,  -- 0 is valid and means no slots appear
   fuel_category = "oe-internal-fuel"
 }
-locomotive.max_power = LOCOMOTIVE_POWER .. "kW"
+locomotive.max_power = const.LOCOMOTIVE_POWER .. "kW"
 locomotive.max_speed = 2  -- vanilla is 1.2
 locomotive.weight = 1200  -- vanilla is 2000 for loco, 1000 for wagons
 
@@ -246,10 +246,10 @@ local locomotive_interface = mimic(locomotive, {
   energy_source = {
     type = "electric",
     usage_priority = "secondary-input",
-    buffer_capacity = LOCOMOTIVE_POWER .. "kJ",       -- 1 second of operation
-    input_flow_limit = 2 * LOCOMOTIVE_POWER .. "kW",  -- recharges in 1 second (each second: consumes LOCOMOTIVE_POWER kJ, recharges LOCOMOTIVE_POWER kJ into buffer)
-    render_no_network_icon = false,                   -- when teleported out of the range of the transformer, should not blink the unplugged symbol
-    render_no_power_icon = false                      -- same with low power symbol
+    buffer_capacity = const.LOCOMOTIVE_POWER .. "kJ",       -- 1 second of operation
+    input_flow_limit = 2 * const.LOCOMOTIVE_POWER .. "kW",  -- recharges in 1 second (each second: consumes LOCOMOTIVE_POWER kJ, recharges LOCOMOTIVE_POWER kJ into buffer)
+    render_no_network_icon = false,                         -- when teleported out of the range of the transformer, should not blink the unplugged symbol
+    render_no_power_icon = false                            -- same with low power symbol
   },
   energy_usage = locomotive.max_power,
   picture = {

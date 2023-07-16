@@ -1,4 +1,12 @@
+--[[ CatenaryManager.lua © Penguin_Spy 2023
+  Manages state of overhead catenary line networks
+]]
 local CatenaryManager = {}
+
+-- Global table storage for catenary network data
+---@class catenary_network_data
+---@field transformer LuaEntity     The transformer powering this catenary network
+---@field electric_network_id uint  The electric network this catenary network is connected to
 
 --[[
   catenary pole directions: (this is how rail signals do it)

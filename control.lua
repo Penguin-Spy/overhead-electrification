@@ -1,22 +1,14 @@
 --[[ control.lua © Penguin_Spy 2023
   Event handlers & updating/tracking of locomotive power
 ]]
----@class locomotive_data
----@field locomotive LuaEntity The locomotive this data is for
----@field interface LuaEntity? The `electric-energy-interface` this locomotive is using to connect to the electrical network, or nil
----@field network_id uint      the id of the catenary network this locomotive is attached to
----@field is_powered boolean   is this locomotive currently powered
-
----@class catenary_network_data
----@field transformer LuaEntity   The transformer powering this catenary network
----@field electric_network_id uint
 
 
 util = require 'util'
 ---@diagnostic disable-next-line: lowercase-global
 RailMarcher = require 'scripts.RailMarcher'
 local CatenaryManager = require 'scripts.CatenaryManager'
-local update_locomotive = require 'scripts.LocomotiveManager'
+local LocomotiveManager = require 'scripts.LocomotiveManager'
+local update_locomotive = LocomotiveManager.update_locomotive
 
 if script.active_mods["gvv"] then require("__gvv__.gvv")() end
 
@@ -87,7 +79,6 @@ local function on_entity_created(event)
     local reason = CatenaryManager.on_pole_placed(entity)
     if reason then
       cancel_entity_creation(entity, event, {"cant-build-reason." .. reason})
-      return
     end
 
     -- any rails: check catenary pole connections.  checking type makes this work with other mods' rails
@@ -96,10 +87,7 @@ local function on_entity_created(event)
 
     -- locomotive: create locomotives table entry
   elseif entity.name == "oe-electric-locomotive" then
-    global.locomotives[entity.unit_number] = {
-      locomotive = entity,
-      is_powered = false
-    }
+    LocomotiveManager.on_locomotive_placed(entity)
   end
 end
 
@@ -116,21 +104,12 @@ script.on_event({
 local function on_entity_destroyed(event)
   local entity = event.entity
 
-  --game.print("on_destroyed:" .. event.name .. " destroyed:" .. entity.name)
-
   if CatenaryManager.is_pole(entity) then
     CatenaryManager.on_pole_removed(entity)
   elseif entity.type == "straight-rail" or entity.type == "curved-rail" then
     CatenaryManager.on_rail_removed(entity)
-  end
-
-  if entity.name == "oe-electric-locomotive" then
-    local locomotive_data = global.locomotives[entity.unit_number]
-    local interface = locomotive_data.interface
-    if interface and interface.valid then  -- may be nil if loco wasn't in a network (or invalid if deleted somelsehow)
-      interface.destroy()
-    end
-    global.locomotives[entity.unit_number] = nil
+  elseif entity.name == "oe-electric-locomotive" then
+    LocomotiveManager.on_locomotive_removed(entity)
   end
 end
 
@@ -167,7 +146,8 @@ local function on_tick(event)
   end
 end
 
-script.on_event(defines.events.on_tick, on_tick)
+--script.on_event(defines.events.on_tick, on_tick)
+script.on_nth_tick(2, on_tick)
 
 
 

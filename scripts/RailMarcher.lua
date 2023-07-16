@@ -1,4 +1,4 @@
---[[ rail_march.lua © Penguin_Spy 2023
+--[[ RailMarcher.lua © Penguin_Spy 2023
   Utilities for finding catenary poles alongside rails
 ]]
 
