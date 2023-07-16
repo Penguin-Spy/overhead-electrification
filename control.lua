@@ -2,9 +2,10 @@
   Event handlers & updating/tracking of locomotive power
 ]]
 ---@class locomotive_data
----@field locomotive LuaEntity    The locomotive this data is for
+---@field locomotive LuaEntity The locomotive this data is for
 ---@field interface LuaEntity? The `electric-energy-interface` this locomotive is using to connect to the electrical network, or nil
 ---@field network_id uint      the id of the catenary network this locomotive is attached to
+---@field is_powered boolean   is this locomotive currently powered
 
 ---@class catenary_network_data
 ---@field transformer LuaEntity   The transformer powering this catenary network
@@ -145,7 +146,8 @@ local function on_entity_created(event)
     -- locomotive: create locomotives table entry
   elseif entity.name == "oe-electric-locomotive" then
     global.locomotives[entity.unit_number] = {
-      locomotive = entity
+      locomotive = entity,
+      is_powered = false
     }
   end
 end
@@ -198,15 +200,22 @@ script.on_event({
 
 -- [[ Locomotive updating ]]
 
----@param locomotive_data locomotive_data
-local function update_locomotive(locomotive_data)
-  local locomotive = locomotive_data.locomotive
-  local rails = locomotive.train.get_rails()
-  local front_network = rail_march.get_network_in_direction(rails[1], defines.rail_direction.front)
-  local back_network = rail_march.get_network_in_direction(rails[1], defines.rail_direction.back)
-  local cached_network = locomotive_data.network_id
+local FRONT = defines.rail_direction.front
+local BACK = defines.rail_direction.back
 
-  game.print("front: " .. (front_network or "nil") .. " back: " .. (back_network or "nil") .. " cached: " .. (cached_network or "nil"))
+
+---@param data locomotive_data
+local function update_locomotive(data)
+  local locomotive = data.locomotive
+  local rails = locomotive.train.get_rails()
+  -- TODO: this needs to search if there's any power anywhere in between the front & back of train + a few rails out on each end!
+  -- adjust function to search from rail A to rail B, returning network_id if there's exactly 1
+  -- or something basically just don't do from whatever the first rail in the list is
+  local front_network = rail_march.get_network_in_direction(rails[1], FRONT)
+  local back_network = rail_march.get_network_in_direction(rails[1], BACK)
+  local cached_network = data.network_id
+
+  --game.print("front: " .. (front_network or "nil") .. " back: " .. (back_network or "nil") .. " cached: " .. (cached_network or "nil"))
 
   -- check network
   if front_network and front_network == back_network then
@@ -215,44 +224,53 @@ local function update_locomotive(locomotive_data)
       game.print("joining new network " .. front_network)
       local network = global.catenary_networks[front_network]
       -- join this one instead
-      local interface = locomotive_data.interface
+      local interface = data.interface
+      ---@diagnostic disable-next-line: need-check-nil if we have a cached network this will always be not nil
       interface.teleport(network.transformer.position)
-      locomotive_data.network_id = front_network
+      data.network_id = front_network
 
       -- if we don't have a network we join the new one
     elseif not cached_network then
       game.print("joining network")
       local network = global.catenary_networks[front_network]
-      locomotive_data.network_id = front_network
+      data.network_id = front_network
 
-      locomotive_data.interface = locomotive.surface.create_entity{
+      data.interface = locomotive.surface.create_entity{
         name = "oe-locomotive-interface",
         position = network.transformer.position,
         force = locomotive.force
       }
     end
-  else  -- make sure we're not in a network
+  elseif cached_network then  -- make sure we're not in a network
     game.print("leaving network")
-    if locomotive_data.interface then locomotive_data.interface.destroy() end
-    locomotive_data.network_id = nil
+    if data.interface then data.interface.destroy() end
+    data.interface = nil
+    data.network_id = nil
     locomotive.burner.currently_burning = nil
   end
 
   -- update fuel
-  local interface = locomotive_data.interface
-  if interface and interface.valid then
-    game.print("has interface")
-    -- todo: only update when status of being powered is different than last update
-    local burner = locomotive.burner
-    if interface.energy >= interface.electric_buffer_size then
+  local interface = data.interface
+
+  -- if we have an interface that's full
+  if interface and interface.energy >= interface.electric_buffer_size then
+    if not data.is_powered then  -- , and we aren't powered,
+      -- become powered
+      local burner = locomotive.burner
       game.print("has enough energy")
       ---@diagnostic disable-next-line: assign-type-mismatch this is literally just wrong, this does work
       burner.currently_burning = "oe-internal-fuel"
       burner.remaining_burning_fuel = 10 ^ 24
-    else
-      game.print("not enough energy")
-      burner.currently_burning = nil
+      data.is_powered = true
     end
+
+    -- if we are powered but we shouldn't be
+  elseif data.is_powered then
+    -- become unpowered
+    local burner = locomotive.burner
+    game.print("not enough energy")
+    burner.currently_burning = nil
+    data.is_powered = false
   end
 end
 
@@ -282,7 +300,7 @@ local function on_tick(event)
   end
 
   for _, locomotive_data in pairs(global.locomotives) do
-    --update_locomotive(locomotive_data)
+    update_locomotive(locomotive_data)
   end
 end
 

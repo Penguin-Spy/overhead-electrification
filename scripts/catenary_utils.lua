@@ -147,9 +147,16 @@ end
 ---@return boolean success were the poles connected
 local function connect_poles(this_pole, other_pole)
   -- if we have a network and it's different
-  if global.electric_network_lookup[this_pole.electric_network_id] and this_pole.electric_network_id ~= other_pole.electric_network_id then
+  local we_have_network = global.electric_network_lookup[this_pole.electric_network_id]
+  local they_have_network = global.electric_network_lookup[other_pole.electric_network_id]
+  local networks_are_different = this_pole.electric_network_id ~= other_pole.electric_network_id
+
+  game.print("we_have_network: " .. (we_have_network or "no") .. " they_have_network: " .. (they_have_network or "no") .. " networks_are_different: " .. tostring(networks_are_different))
+
+  if we_have_network and they_have_network and networks_are_different then
     return false  -- don't connect
   else            -- otherwise, they're the same network or we should connect to theirs
+    game.print("actually connecting to pole")
     -- teleport to the other pole to connect, then teleport back
     local pos = this_pole.position
     this_pole.teleport(other_pole.position)
@@ -196,10 +203,6 @@ function catenary_utils.on_pole_placed(this_pole)
   for i, other_pole in pairs(far_poles) do
     game.print("found far #" .. i .. ": " .. other_pole.name)
     highlight(other_pole, i, {1, 0, 0})
-  end
-
-  local _, other_pole = next(far_poles)
-  if other_pole and other_pole ~= this_pole then
     game.print("connecting poles")
     connect_poles(this_pole, other_pole)
   end
@@ -219,6 +222,15 @@ end
 ---@param pole LuaEntity
 function catenary_utils.on_pole_removed(pole)
   game.print("on pole removed")
+
+  -- mark rail as no longer powered
+  -- TODO: do this for every pole in the electrical network that no longer has a catenary network (in the lookup table)
+  local rail = get_adjacent_rail(pole, get_direction(pole))
+  if rail then
+    global.rail_number_lookup[rail.unit_number] = nil
+  end
+
+  -- do this after we call get_direction
   remove_pole_graphics(pole)
 end
 
