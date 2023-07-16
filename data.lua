@@ -34,9 +34,10 @@ local function mimic(entity_prototype, properties)
     icon_mipmaps = entity_prototype.icon_mipmaps,
     subgroup = "oe-other",
     order = "oe-internal",
-    selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
-    selectable_in_game = true,  -- false,
-    collision_mask = {},        -- collide with nothing (anything can be placed overtop it)
+    --collision_box = {{0, 0}, {0, 0}},
+    selection_box = {{-0.5, -0.5}, {0.5, 0.5}},  -- remove for not debugging
+    selectable_in_game = true,                   -- false for not debugging
+    collision_mask = {},                         -- collide with nothing (anything can be placed overtop it)
     flags = {}
   }
 
@@ -112,16 +113,15 @@ transformer.maximum_wire_distance = 9   -- medium-electric-pole
 transformer.supply_area_distance = 0.5  -- only inside of it since it's 2x2
 transformer.build_grid_size = 2         -- ensure ghosts also follow the rail grid
 
--- simple-entity for graphics for orthogonal directions
-local transformer_orthogonal = mimic(transformer, {
+-- simple-entity for graphics
+local transformer_graphics = mimic(transformer, {
   type = "simple-entity-with-owner",
-  name = "oe-transformer-orthogonal",
+  name = "oe-transformer-graphics",
   flags = {"not-rotatable"},
-  selectable_in_game = false,
   build_grid_size = 2,
   picture = {
     sheet = {
-      filename = graphics .. "catenary-pole/direction-orthogonal.png",
+      filename = graphics .. "catenary-pole/direction-4.png",
       priority = "extra-high",
       size = 76,
       shift = util.by_pixel(-0.5, -0.5),
@@ -130,7 +130,7 @@ local transformer_orthogonal = mimic(transformer, {
   }
 })
 
--- dummy placement entity, immediatley replaced by the real one in control.lua
+-- dummy placement entity for placement restrictions, immediatley replaced by the real one in control.lua
 local transformer_placer = generate_placer(transformer, "train-stop", {
   animation_ticks_per_frame = 1,
   chart_name = false,
@@ -164,7 +164,7 @@ local transformer_recipe = {
   result = "oe-transformer"
 }
 
-data:extend{transformer, transformer_orthogonal, transformer_placer, transformer_item, transformer_recipe}
+data:extend{transformer, transformer_graphics, transformer_placer, transformer_item, transformer_recipe}
 
 
 -- [[ Overhead power line pylons ]] --
@@ -180,125 +180,27 @@ catenary_pole.maximum_wire_distance = 0.75  -- allow connecting to 2x2 poles ins
 catenary_pole.supply_area_distance = 0
 catenary_pole.flags = {"player-creation", "placeable-player", "building-direction-8-way", "filter-directions"}
 
--- simple-entity for graphics for orthogonal directions
-local catenary_pole_orthogonal = mimic(catenary_pole, {
+-- simple-entity for graphics
+local catenary_pole_graphics = mimic(catenary_pole, {
   type = "simple-entity-with-owner",
-  name = "oe-catenary-pole-orthogonal",
-  --flags = {"building-direction-8-way"},  -- only works in editor; lua can't set it to diagonal values
+  name = "oe-catenary-pole-graphics",
+  flags = {"not-rotatable"},
   collision_box = {{-0.35, -0.35}, {0.35, 0.35}},
   selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
   random_variation_on_create = false,
   pictures = {
     sheet = {
-      --{
       variation_count = 8,
-      filename = graphics .. "catenary-pole/direction-orthogonal.png",
+      filename = graphics .. "catenary-pole/direction-8.png",
       priority = "extra-high",
       size = 76,
       shift = util.by_pixel(-0.5, -0.5),
       scale = 0.5
-    }  --[[,
-      {
-        filename = graphics .. "catenary-pole/direction-diagonal.png",
-        priority = "extra-high",
-        size = 76,
-        shift = util.by_pixel(-0.5, -0.5),
-        scale = 0.5
-      }
-    }]]
-  }
-  --[=[animations = {
-    --[[sheet = {
-      filename = graphics .. "catenary-pole/direction-orthogonal.png",
-      priority = "extra-high",
-      size = 76,
-      shift = util.by_pixel(-0.5, -0.5),
-      scale = 0.5
-    },]]
-    sheet = {
-      --{
-      variation_count = 8,
-      filename = graphics .. "catenary-pole/direction-orthogonal.png",
-      priority = "extra-high",
-      width = 76,
-      height = 76,
-      shift = util.by_pixel(-0.5, -0.5),
-      scale = 0.5,
-      line_length = 1
-      --},
-      --[[{
-        variation_count = 8,
-        filename = graphics .. "catenary-pole/direction-orthogonal.png",
-        priority = "extra-high",
-        size = 76,
-        shift = util.by_pixel(-0.5, -0.5),
-        scale = 0.5,
-        x = 76
-      },
-      {
-        variation_count = 8,
-        filename = graphics .. "catenary-pole/direction-orthogonal.png",
-        priority = "extra-high",
-        size = 76,
-        shift = util.by_pixel(-0.5, -0.5),
-        scale = 0.5,
-        x = 76 * 2
-      },
-      {
-        variation_count = 8,
-        filename = graphics .. "catenary-pole/direction-orthogonal.png",
-        priority = "extra-high",
-        size = 76,
-        shift = util.by_pixel(-0.5, -0.5),
-        scale = 0.5,
-        x = 76 * 3
-      },]]
-      --[[{
-        variation_count = 8,
-        filename = graphics .. "catenary-pole/direction-orthogonal.png",
-        priority = "extra-high",
-        size = 76,
-        shift = util.by_pixel(-0.5, -0.5),
-        scale = 0.5,
-        x = 76 * 4
-      },
-      {
-        variation_count = 8,
-        filename = graphics .. "catenary-pole/direction-orthogonal.png",
-        priority = "extra-high",
-        size = 76,
-        shift = util.by_pixel(-0.5, -0.5),
-        scale = 0.5,
-        x = 76 * 5
-      },
-      {
-        variation_count = 8,
-        filename = graphics .. "catenary-pole/direction-orthogonal.png",
-        priority = "extra-high",
-        size = 76,
-        shift = util.by_pixel(-0.5, -0.5),
-        scale = 0.5,
-        x = 76 * 6
-      },
-      {
-        variation_count = 8,
-        filename = graphics .. "catenary-pole/direction-orthogonal.png",
-        priority = "extra-high",
-        size = 76,
-        shift = util.by_pixel(-0.5, -0.5),
-        scale = 0.5,
-        x = 76 * 7
-      }]]
     }
-  }]=]
+  }
 })
 
--- simple-entity for graphics for diagonal directions
-local catenary_pole_diagonal = table.deepcopy(catenary_pole_orthogonal)
-catenary_pole_diagonal.name = "oe-catenary-pole-diagonal"
---catenary_pole_diagonal.picture.sheet.filename = graphics .. "catenary-pole/direction-diagonal.png"
-
--- dummy placement entity, immediatley replaced by the real one in control.lua
+-- dummy placement entity for placement restrictions, immediatley replaced by the real one in control.lua
 local catenary_pole_placer = generate_placer(catenary_pole, "rail-signal", {
   flags = data.raw["rail-signal"]["rail-signal"].flags,
   animation = data.raw["rail-signal"]["rail-signal"].animation,
@@ -328,7 +230,7 @@ local catenary_pole_recipe = {
   result = "oe-catenary-pole"
 }
 
-data:extend{catenary_pole, catenary_pole_orthogonal, catenary_pole_diagonal, catenary_pole_placer, catenary_pole_item, catenary_pole_recipe}
+data:extend{catenary_pole, catenary_pole_graphics, catenary_pole_placer, catenary_pole_item, catenary_pole_recipe}
 
 
 -- [[ electric locomotive interface ]] --
@@ -453,10 +355,10 @@ data:extend{
         {"chemical-science-pack",   1}
       },
       time = 30
-    },
-    order = "c-g-a-a-a"  -- after electric-railway (c-g-a-a)
+    },  -- after electric-railway (c-g-a-a)
+    order = "c-g-a-a-a"
   },
-  {
+  {  -- order our internal entites on their own row
     type = "item-subgroup",
     name = "oe-other",
     group = "other",

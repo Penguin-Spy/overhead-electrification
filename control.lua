@@ -168,7 +168,7 @@ local function on_entity_destroyed(event)
   -- transformer: remove catenary network
   -- TODO: remove locomotive interfaces (could we just delete them? locomotive updating will do a valid check)
   if entity.name == "oe-transformer" then
-    global.catenary_networks[entity.unit_number] = nil
+    global.catenary_networks[entity.electric_network_id] = nil
   end
 
   if entity.name == "oe-electric-locomotive" then

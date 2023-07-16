@@ -83,6 +83,7 @@ local function get_adjacent_rail(pole, direction)
         if rail then return rail, found_dir end
       end
     end
+    game.print("no direction given, all 8 searched and no found")
     return nil, nil  -- no rail found
   end
 
@@ -105,34 +106,33 @@ end
 ---@param pole LuaEntity doesn't actually need to be a pole, just used for surface & position & whatnot
 ---@param name string the name of the pole
 ---@param direction defines.direction
-local function create_simple_entity_for_pole(pole, name, direction)
-  return pole.surface.create_entity{
-    name = name .. ((direction % 2 == 0 or is_big(pole)) and "-orthogonal" or "-diagonal"),
+local function create_graphics_for_pole(pole, name, direction)
+  local graphics_entity = pole.surface.create_entity{
+    name = name .. "-graphics",
     position = pole.position,
     direction = direction,  -- factorio rounds down for 4-direciton entities apparently, cool!
     force = pole.force,
     player = pole.last_user
   }
+  graphics_entity.graphics_variation = direction + 1  -- does nothing for 4-way graphics entities (intended)
+  return graphics_entity
 end
 
 
 -- finds the simple entity for the pole that's used for graphics, or creates it if it's missing
 ---@param pole LuaEntity
 ---@return LuaEntity simple_entity
-local function get_simple_entity(pole)
-  local simple_entity = pole.surface.find_entity(pole.name .. "-orthogonal", pole.position)
-  if not (simple_entity or is_big(pole)) then  -- if we didn't find it and it has a diagonal version
-    simple_entity = pole.surface.find_entity(pole.name .. "-diagonal", pole.position)
-  end
+local function get_pole_graphics(pole)
+  local graphics_entity = pole.surface.find_entity(pole.name .. "-graphics", pole.position)
   -- if we don't have a simple_entity, make it facing the first rail clockwise (or north if no rails exist)
-  if not simple_entity then
+  if not graphics_entity then
     local _, direction = get_adjacent_rail(pole)
     if not direction then
       direction = defines.direction.north
     end
-    simple_entity = create_simple_entity_for_pole(pole, pole.name, direction)
+    graphics_entity = create_graphics_for_pole(pole, pole.name, direction)
   end
-  return simple_entity
+  return graphics_entity
 end
 
 
@@ -140,12 +140,10 @@ end
 ---@param pole LuaEntity
 ---@return defines.direction
 local function get_direction(pole)
-  local simple_entity = get_simple_entity(pole)
-  local direction = simple_entity.direction
-  if simple_entity.name == pole.name .. "-diagonal" then
-    direction = (direction + 1) % 8
-  end
-  return direction
+  local graphics_entity = get_pole_graphics(pole)
+  -- 8-way directions are done with variations, 4 way is done with direction.
+  return is_big(pole) and ((graphics_entity.direction) % 8)
+      or (graphics_entity.graphics_variation - 1)
 end
 
 
@@ -156,6 +154,7 @@ function catenary_utils.on_pole_placed(pole)
   -- figure out what direction we're facing
 
   local direction = get_direction(pole)
+  game.print("direction: " .. direction)
 
   -- get the adjacent rail for searching for neighbors
 
@@ -163,7 +162,7 @@ function catenary_utils.on_pole_placed(pole)
   if not rail then
     game.print("no adjacent rail found")
     -- TODO: something better than this
-    get_simple_entity(pole).destroy()
+    get_pole_graphics(pole).destroy()
     return false
   end
   local poles = rail_march.find_all_poles(rail, defines.rail_direction.front)
@@ -198,7 +197,7 @@ end
 -- handles cleanup of graphical entities & whatnot
 ---@param pole LuaEntity
 function catenary_utils.on_pole_removed(pole)
-  get_simple_entity(pole).destroy()
+  get_pole_graphics(pole).destroy()
 end
 
 
@@ -217,9 +216,9 @@ end
 function catenary_utils.handle_placer(entity, placer_target)
   -- place the s-e-w-o for the direction
   if placer_target == "oe-catenary-pole" then
-    create_simple_entity_for_pole(entity, placer_target, entity.direction)
+    create_graphics_for_pole(entity, placer_target, entity.direction)
   elseif placer_target == "oe-transformer" then
-    create_simple_entity_for_pole(entity, placer_target, (entity.direction + 4) % 8)
+    create_graphics_for_pole(entity, placer_target, (entity.direction + 4) % 8)  -- train stop directions are opposite rail signals.
   end
 
   local new_entity = entity.surface.create_entity{
