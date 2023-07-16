@@ -142,6 +142,20 @@ script.on_event({
 local FRONT = defines.rail_direction.front
 local BACK = defines.rail_direction.back
 
+local STATE_COLORS = {
+  [defines.train_state.on_the_path]         = {0, 1, 0, 0.5},      -- green       accelerating/maintaining speed
+  [defines.train_state.path_lost]           = {1, 1, 0, 0.5},      -- yellow?     unknown
+  [defines.train_state.no_schedule]         = {1, 1, 1, 0.5},      -- white       stopped  -- overrides manual_control_stop
+  [defines.train_state.no_path]             = {1, 0, 0, 0.5},      -- red         stopped
+  [defines.train_state.arrive_signal]       = {0, 1, 1, 0.5},      -- cyan        braking
+  [defines.train_state.wait_signal]         = {0, 0, 1, 0.5},      -- blue        stopped
+  [defines.train_state.arrive_station]      = {0, 1, 1, 0.5},      -- cyan        braking
+  [defines.train_state.wait_station]        = {0, 0, 1, 0.5},      -- blue        stopped
+  [defines.train_state.manual_control_stop] = {0, 1, 1, 0.5},      -- cyan        braking
+  [defines.train_state.manual_control]      = {0, 0.5, 0, 0.5},    -- dark green  <varies> -- have to check current speed i guess (>0 = consume power)
+  [defines.train_state.destination_full]    = {0.5, 0, 0.5, 0.5},  -- purple      stopped
+}
+
 
 ---@param data locomotive_data
 local function update_locomotive(data)
@@ -212,6 +226,9 @@ local function update_locomotive(data)
     burner.currently_burning = nil
     data.is_powered = false
   end
+
+  -- debug: color based on state
+  locomotive.color = STATE_COLORS[locomotive.train.state]
 end
 
 
