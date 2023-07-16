@@ -11,12 +11,15 @@
 ---@field transformer LuaEntity   The transformer powering this catenary network
 ---@field electric_network_id uint
 
+
 util = require 'util'
-local catenary_utils = require 'scripts.catenary_utils'
 ---@diagnostic disable-next-line: lowercase-global
-rail_march = require 'scripts.rail_march'
+RailMarcher = require 'scripts.RailMarcher'
+local CatenaryManager = require 'scripts.CatenaryManager'
+local update_locomotive = require 'scripts.LocomotiveManager'
 
 if script.active_mods["gvv"] then require("__gvv__.gvv")() end
+
 
 ---@param entity LuaEntity
 ---@param event EventData.on_built_entity|EventData.on_robot_built_entity|EventData.script_raised_built
@@ -62,6 +65,9 @@ local function cancel_entity_creation(entity, event, reason)
 end
 
 
+
+-- [[ Event handlers ]] --
+
 ---@param event EventData.on_built_entity|EventData.script_raised_built
 local function on_entity_created(event)
   local entity = event.created_entity or event.entity
@@ -71,14 +77,14 @@ local function on_entity_created(event)
 
   if placer_target then  -- all placers are for catenary poles
     game.print("catenary_utils converting " .. entity.name .. " to " .. placer_target)
-    entity = catenary_utils.handle_placer(entity, placer_target)
+    entity = CatenaryManager.handle_placer(entity, placer_target)
   end
 
   -- the real entity actually got built, run on_build code for them
 
   -- catenary poles: check if valid space, check if can create pole connections
-  if catenary_utils.is_pole(entity) then
-    local reason = catenary_utils.on_pole_placed(entity)
+  if CatenaryManager.is_pole(entity) then
+    local reason = CatenaryManager.on_pole_placed(entity)
     if reason then
       cancel_entity_creation(entity, event, {"cant-build-reason." .. reason})
       return
@@ -86,7 +92,7 @@ local function on_entity_created(event)
 
     -- any rails: check catenary pole connections.  checking type makes this work with other mods' rails
   elseif entity.type == "straight-rail" or entity.type == "curved-rail" then
-    catenary_utils.on_rail_placed(entity)
+    CatenaryManager.on_rail_placed(entity)
 
     -- locomotive: create locomotives table entry
   elseif entity.name == "oe-electric-locomotive" then
@@ -112,10 +118,10 @@ local function on_entity_destroyed(event)
 
   --game.print("on_destroyed:" .. event.name .. " destroyed:" .. entity.name)
 
-  if catenary_utils.is_pole(entity) then
-    catenary_utils.on_pole_removed(entity)
+  if CatenaryManager.is_pole(entity) then
+    CatenaryManager.on_pole_removed(entity)
   elseif entity.type == "straight-rail" or entity.type == "curved-rail" then
-    catenary_utils.on_rail_removed(entity)
+    CatenaryManager.on_rail_removed(entity)
   end
 
   if entity.name == "oe-electric-locomotive" then
@@ -137,128 +143,13 @@ script.on_event({
 }, on_entity_destroyed)
 
 
--- [[ Locomotive updating ]]
-
-local FRONT = defines.rail_direction.front
-local BACK = defines.rail_direction.back
-
-local STATE_COLORS = {
-  [defines.train_state.on_the_path]         = {0, 1, 0, 0.5},      -- green       accelerating/maintaining speed
-  [defines.train_state.path_lost]           = {1, 1, 0, 0.5},      -- yellow?     unknown
-  [defines.train_state.no_schedule]         = {1, 1, 1, 0.5},      -- white       stopped  -- overrides manual_control_stop
-  [defines.train_state.no_path]             = {1, 0, 0, 0.5},      -- red         stopped
-  [defines.train_state.arrive_signal]       = {0, 1, 1, 0.5},      -- cyan        braking
-  [defines.train_state.wait_signal]         = {0, 0, 1, 0.5},      -- blue        stopped
-  [defines.train_state.arrive_station]      = {0, 1, 1, 0.5},      -- cyan        braking
-  [defines.train_state.wait_station]        = {0, 0, 1, 0.5},      -- blue        stopped
-  [defines.train_state.manual_control_stop] = {0, 1, 1, 0.5},      -- cyan        braking
-  [defines.train_state.manual_control]      = {0, 0.5, 0, 0.5},    -- dark green  <varies> -- have to check current speed i guess (>0 = consume power)
-  [defines.train_state.destination_full]    = {0.5, 0, 0.5, 0.5},  -- purple      stopped
-}
-
-
----@param data locomotive_data
-local function update_locomotive(data)
-  local locomotive = data.locomotive
-  local interface = data.interface
-  local rails = locomotive.train.get_rails()
-  -- TODO: this needs to search if there's any power anywhere in between the front & back of train + a few rails out on each end!
-  -- adjust function to search from rail A to rail B, returning network_id if there's exactly 1
-  -- or something basically just don't do from whatever the first rail in the list is
-  local front_network = rail_march.get_network_in_direction(rails[1], FRONT)
-  local back_network = rail_march.get_network_in_direction(rails[1], BACK)
-  local cached_network = data.network_id
-
-  --game.print("front: " .. (front_network or "nil") .. " back: " .. (back_network or "nil") .. " cached: " .. (cached_network or "nil"))
-
-  -- check network
-  if front_network and front_network == back_network then
-    -- if we were in a different network
-    if cached_network and cached_network ~= front_network then
-      game.print("joining new network " .. front_network)
-      local network = global.catenary_networks[front_network]
-      -- join this one instead
-      ---@diagnostic disable-next-line: need-check-nil if we have a cached network this will always be not nil
-      interface.teleport(network.transformer.position)
-      data.network_id = front_network
-
-      -- if we don't have a network we join the new one
-    elseif not cached_network then
-      game.print("joining network")
-      local network = global.catenary_networks[front_network]
-      data.network_id = front_network
-
-      interface = locomotive.surface.create_entity{
-        name = "oe-locomotive-interface",
-        position = network.transformer.position,
-        force = locomotive.force
-      }
-      data.interface = interface
-    end
-  elseif cached_network then  -- make sure we're not in a network
-    game.print("leaving network")
-    if interface then interface.destroy() end
-    interface = nil
-    data.interface = nil
-    data.network_id = nil
-    locomotive.burner.currently_burning = nil
-  end
-
-  -- update fuel
-
-  -- if we have an interface that's full
-  if interface and interface.energy >= interface.electric_buffer_size then
-    if not data.is_powered then  -- , and we aren't powered,
-      -- become powered
-      local burner = locomotive.burner
-      game.print("has enough energy")
-      ---@diagnostic disable-next-line: assign-type-mismatch this is literally just wrong, this does work
-      burner.currently_burning = "oe-internal-fuel"
-      burner.remaining_burning_fuel = 10 ^ 24
-      data.is_powered = true
-    end
-
-    -- if we are powered but we shouldn't be
-  elseif data.is_powered then
-    -- become unpowered
-    local burner = locomotive.burner
-    game.print("not enough energy")
-    burner.currently_burning = nil
-    data.is_powered = false
-  end
-
-  -- debug: color based on state
-  locomotive.color = STATE_COLORS[locomotive.train.state]
-end
-
-
--- [[ Catenary network updating ]]
-
--- this sucks but it's 1am i'll figure out something better later
----@param catenary_network_data catenary_network_data
-local function update_catenary_network(catenary_id, catenary_network_data)
-  local transformer = catenary_network_data.transformer
-  local cached_electric_id = catenary_network_data.electric_network_id
-  local current_electric_id = transformer.electric_network_id
-
-  -- network changed
-  if current_electric_id and current_electric_id ~= cached_electric_id then
-    game.print("network changed from " .. cached_electric_id .. " to " .. current_electric_id)
-    global.electric_network_lookup[cached_electric_id] = nil
-    global.electric_network_lookup[current_electric_id] = catenary_id
-    catenary_network_data.electric_network_id = current_electric_id
-  end
-end
-
-
-
 -- todo: use event.tick, modulo, and a limit number to only update n locomotives per tick
 ---      make the limit a map setting
 ---@param event EventData.on_tick
 local function on_tick(event)
   -- ew, really need to find a set of suitable event handlers for this if possible
   for id, catenary_network_data in pairs(global.catenary_networks) do
-    update_catenary_network(id, catenary_network_data)
+    CatenaryManager.update_catenary_network(id, catenary_network_data)
   end
 
   for _, locomotive_data in pairs(global.locomotives) do
@@ -268,7 +159,7 @@ local function on_tick(event)
   for i, pole in pairs(global.queued_network_changes) do
     if pole.valid then
       game.print("queued recursive update of " .. pole.unit_number)
-      catenary_utils.recursively_update_network(pole, global.electric_network_lookup[pole.electric_network_id])
+      CatenaryManager.recursively_update_network(pole, global.electric_network_lookup[pole.electric_network_id])
     else
       game.print("queued recursive update of not valid pole.")
     end
@@ -315,9 +206,6 @@ script.on_init(function()
 end)
 script.on_load(loadalize)
 script.on_configuration_changed(initalize)
-
-
-
 
 
 
@@ -380,7 +268,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
   end
 
   if subcommand == "all" then
-    local nearby_poles, far_poles = rail_march.find_all_poles(rail)
+    local nearby_poles, far_poles = RailMarcher.find_all_poles(rail)
 
     for i, pole in pairs(nearby_poles) do
       game.print("found #" .. i .. ": " .. pole.name)
@@ -392,7 +280,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
     end
   elseif subcommand == "find" then
     ---@diagnostic disable-next-line: param-type-mismatch
-    local network_id = rail_march.get_network_in_direction(rail, tonumber(options[2]))
+    local network_id = RailMarcher.get_network_in_direction(rail, tonumber(options[2]))
     game.print("found: " .. (network_id or "no network"))
   else
     game.print("unknown command")

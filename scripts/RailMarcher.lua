@@ -2,7 +2,7 @@
   Utilities for finding catenary poles alongside rails
 ]]
 
-local rail_march = {}
+local RailMarcher = {}
 
 -- store these to reduce table dereferences
 local STRAIGHT = defines.rail_connection_direction.straight
@@ -31,7 +31,7 @@ end
 ---@param rail_dir defines.rail_direction
 ---@param network_id uint?
 ---@return uint?
-function rail_march.get_network_in_direction(rail, rail_dir, network_id)
+function RailMarcher.get_network_in_direction(rail, rail_dir, network_id)
   -- TODO: implement this
   -- might also change this to use a lookup table indexed by rail unit_numbers for better performance
   -- needs pretty big table in memory, but 0 calls to surface.find_entities_filtered
@@ -71,7 +71,7 @@ end
 -- used when finding poles for a pole to connect to
 ---@param rail LuaEntity
 ---@return LuaEntity[] nearby_poles, LuaEntity[] far_poles
-function rail_march.find_all_poles(rail)
+function RailMarcher.find_all_poles(rail)
   local nearby_poles, far_poles = nil, {}
   local surface = rail.surface
 
@@ -157,4 +157,4 @@ function rail_march.find_all_poles(rail)
   ]]
 end
 
-return rail_march
+return RailMarcher

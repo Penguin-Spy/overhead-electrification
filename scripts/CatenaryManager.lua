@@ -1,4 +1,4 @@
-local catenary_utils = {}
+local CatenaryManager = {}
 
 --[[
   catenary pole directions: (this is how rail signals do it)
@@ -11,11 +11,10 @@ local catenary_utils = {}
 -- checks if an entity is a catenary pole
 ---@param entity LuaEntity
 ---@return boolean
-function catenary_utils.is_pole(entity)
+function CatenaryManager.is_pole(entity)
   local name = entity.name
   return name == "oe-catenary-pole" or name == "oe-transformer"  -- or name == "oe-catenary-double-pole" or name == "oe-catenary-pole-rail-signal", etc
 end
-
 
 -- checks if this entity is a 2x2 pole (only 4 rotations)
 ---@param entity LuaEntity
@@ -93,7 +92,6 @@ local function create_graphics_for_pole(pole, name, direction)
   return graphics_entity
 end
 
-
 -- removes the graphics entity if it exists
 ---@param pole LuaEntity
 local function remove_pole_graphics(pole)
@@ -102,7 +100,6 @@ local function remove_pole_graphics(pole)
     graphics_entity.destroy()
   end
 end
-
 
 -- finds the graphics entity for the pole that's used for graphics, or creates it if it's missing
 ---@param pole LuaEntity
@@ -120,7 +117,6 @@ local function get_pole_graphics(pole)
   return graphics_entity
 end
 
-
 -- returns the 8-way direction of the catenary pole
 ---@param pole LuaEntity
 ---@return defines.direction
@@ -131,6 +127,7 @@ local function get_direction(pole)
       or (graphics_entity.graphics_variation - 1)
 end
 
+
 -- sets the network for a pole's rail
 ---@param pole LuaEntity
 ---@param catenary_id number? the id of the catenary network, or nil for no network
@@ -140,7 +137,6 @@ local function set_network(pole, catenary_id)
     global.rail_number_lookup[rail.unit_number] = catenary_id
   end
 end
-
 
 -- attempts to connect two poles, failing if they're not in the same network <br>
 -- if this_pole doesn't have a network, it's added to the other_pole's network
@@ -185,7 +181,7 @@ local function recursively_update_pole(this_pole, catenary_id)
 
   local neighbors = this_pole.neighbours.copper
   for _, other_pole in pairs(neighbors) do
-    if not updated_poles[other_pole.unit_number] and catenary_utils.is_pole(other_pole) then
+    if not updated_poles[other_pole.unit_number] and CatenaryManager.is_pole(other_pole) then
       recursively_update_pole(other_pole, catenary_id)
     end
   end
@@ -194,7 +190,7 @@ end
 -- recurses down a pole's neighbours, updating the catenary network id of their rails
 ---@param pole LuaEntity
 ---@param catenary_id number?  the id of the catenary network, or nil for no network
-function catenary_utils.recursively_update_network(pole, catenary_id)
+function CatenaryManager.recursively_update_network(pole, catenary_id)
   updated_poles = {}
   recursively_update_pole(pole, catenary_id)
 end
@@ -203,7 +199,7 @@ end
 -- when a (non-ghost) entity is placed that's a catenary pole
 ---@param this_pole LuaEntity
 ---@return string|nil removal_reason string if the placement should be canceled, or nil if success
-function catenary_utils.on_pole_placed(this_pole)
+function CatenaryManager.on_pole_placed(this_pole)
   game.print("placed pole id: " .. this_pole.unit_number)
 
   -- figure out what direction we're facing
@@ -216,7 +212,7 @@ function catenary_utils.on_pole_placed(this_pole)
     remove_pole_graphics(this_pole)
     return "oe-invalid-pole-position"
   end
-  local nearby_poles, far_poles = rail_march.find_all_poles(rail)
+  local nearby_poles, far_poles = RailMarcher.find_all_poles(rail)
 
   for i, other_pole in pairs(nearby_poles) do
     game.print("found nearby #" .. i .. ": " .. other_pole.name)
@@ -248,7 +244,7 @@ function catenary_utils.on_pole_placed(this_pole)
   end
 
   -- update network
-  catenary_utils.recursively_update_network(this_pole, global.electric_network_lookup[this_pole.electric_network_id])
+  CatenaryManager.recursively_update_network(this_pole, global.electric_network_lookup[this_pole.electric_network_id])
 
   return nil
 end
@@ -256,14 +252,14 @@ end
 
 -- when any (non-ghost) rail is placed. checks updating status of nearby catenary poles
 ---@param rail LuaEntity
-function catenary_utils.on_rail_placed(rail)
+function CatenaryManager.on_rail_placed(rail)
 
 end
 
 
 -- handles cleanup of graphical entities & whatnot
 ---@param pole LuaEntity
-function catenary_utils.on_pole_removed(pole)
+function CatenaryManager.on_pole_removed(pole)
   game.print("on pole removed")
 
   -- mark rail as no longer powered
@@ -284,7 +280,7 @@ function catenary_utils.on_pole_removed(pole)
   -- queue neighbors to recursively update
   local neighbors = pole.neighbours.copper
   for _, other_pole in pairs(neighbors) do
-    if catenary_utils.is_pole(other_pole) then
+    if CatenaryManager.is_pole(other_pole) then
       global.queued_network_changes[#global.queued_network_changes+1] = other_pole
     end
   end
@@ -296,17 +292,16 @@ end
 
 -- disconnects catenary poles that are connected above this rail
 ---@param rail LuaEntity
-function catenary_utils.on_rail_removed(rail)
+function CatenaryManager.on_rail_removed(rail)
 
 end
-
 
 
 -- handle converting the catenary pole placers to their corresponding real entity
 ---@param entity LuaEntity      the placer entity
 ---@param placer_target string  the name of the real entity to be placed
 ---@return LuaEntity -          the real entity that got placed
-function catenary_utils.handle_placer(entity, placer_target)
+function CatenaryManager.handle_placer(entity, placer_target)
   -- place the s-e-w-o for the direction
   if placer_target == "oe-catenary-pole" then
     create_graphics_for_pole(entity, placer_target, entity.direction)
@@ -326,4 +321,24 @@ function catenary_utils.handle_placer(entity, placer_target)
   return new_entity
 end
 
-return catenary_utils
+
+-- this sucks but it's 1am i'll figure out something better later
+---@param catenary_network_data catenary_network_data
+function CatenaryManager.update_catenary_network(catenary_id, catenary_network_data)
+  local transformer = catenary_network_data.transformer
+  local cached_electric_id = catenary_network_data.electric_network_id
+  local current_electric_id = transformer.electric_network_id
+
+  -- network changed
+  if current_electric_id and current_electric_id ~= cached_electric_id then
+    game.print("network changed from " .. cached_electric_id .. " to " .. current_electric_id)
+    global.electric_network_lookup[cached_electric_id] = nil
+    global.electric_network_lookup[current_electric_id] = catenary_id
+    catenary_network_data.electric_network_id = current_electric_id
+  end
+end
+
+
+
+
+return CatenaryManager
