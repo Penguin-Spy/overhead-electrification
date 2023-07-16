@@ -62,59 +62,14 @@ local function cancel_entity_creation(entity, event, reason)
 end
 
 
-
----@param effective_name string the actual name of the entity
----@param entity LuaEntity may be "entity-ghost"
----@return string?- nil if not canceling, or localised string key
-local function check_placement(effective_name, entity)
-  if effective_name == "oe-transformer" or effective_name == "oe-catenary-pole" then
-    --local nearby_rails = entity.surface.find_entities_filtered{position = entity.position, radius = 2, name = "straight-rail"}
-  end
-
-  return "cant-build-reason.entity-must-be-built-next-to-rail"
-end
-
-
 ---@param event EventData.on_built_entity|EventData.script_raised_built
 local function on_entity_created(event)
   local entity = event.created_entity or event.entity
 
   -- name of the entity this placer is placing, or nil if not a placer
   local placer_target = string.match(entity.name, "^(oe%-.-)%-placer$")
-  -- name of the entity this entity will eventually be
-  --[[local effective_name = placer_target                                                                                     -- real placer
-      or (entity.name == "entity-ghost" and (string.match(entity.ghost_name, "^(oe%-.-)%-placer$") or entity.ghost_name))  -- ghost placer or ghost entity
-      or entity.name                                                                                                       -- real entity
-  ]]
 
-  --game.print("placer_name: " .. (placer_target or "nil") .. " effective_name: " .. effective_name)
-
-  -- if it's an entity we have placement restrictions for, check them
-  --[[if effective_name == "oe-transformer" then
-    local cancel_reason = check_placement(effective_name, entity)
-    if cancel_reason then
-      cancel_entity_creation(entity, event, {cancel_reason, {"entity-name." .. effective_name}})
-      return
-    end
-  end]]
-
-
-  -- if an actual placer got placed, convert it to it's target
-  --[[if placer_target == "oe-transformer" then  -- note that this only runs when the player places the item. bots building ghosts immediatley places the real entity
-    game.print("converting " .. entity.name .. " to " .. placer_target)
-    local new_entity = entity.surface.create_entity{
-      name = placer_target,
-      position = entity.position,
-      direction = entity.direction,
-      force = entity.force,
-      player = entity.last_user,
-    }
-    entity.destroy()
-    if not new_entity or not new_entity.valid then error("creating entity " .. placer_target .. " failed unexpectedly") end
-    -- run the rest of this handler with the real entity
-    entity = new_entity
-  else]]
-  if placer_target then  -- any other placers are for catenary poles
+  if placer_target then  -- all placers are for catenary poles
     game.print("catenary_utils converting " .. entity.name .. " to " .. placer_target)
     entity = catenary_utils.handle_placer(entity, placer_target)
   end
@@ -132,16 +87,6 @@ local function on_entity_created(event)
     -- any rails: check catenary pole connections.  checking type makes this work with other mods' rails
   elseif entity.type == "straight-rail" or entity.type == "curved-rail" then
     catenary_utils.on_rail_placed(entity)
-  end
-
-  -- transformer: create catenary network.
-  if entity.name == "oe-transformer" then
-    -- use the transformer's unit_number as the network_id
-    global.catenary_networks[entity.unit_number] = {
-      transformer = entity,
-      electric_network_id = entity.electric_network_id
-    }
-    global.electric_network_lookup[entity.electric_network_id] = entity.unit_number
 
     -- locomotive: create locomotives table entry
   elseif entity.name == "oe-electric-locomotive" then
@@ -173,12 +118,6 @@ local function on_entity_destroyed(event)
     catenary_utils.on_rail_removed(entity)
   end
 
-  -- transformer: remove catenary network
-  -- TODO: remove locomotive interfaces (could we just delete them? locomotive updating will do a valid check)
-  if entity.name == "oe-transformer" then
-    global.catenary_networks[entity.unit_number] = nil
-  end
-
   if entity.name == "oe-electric-locomotive" then
     local locomotive_data = global.locomotives[entity.unit_number]
     local interface = locomotive_data.interface
@@ -207,6 +146,7 @@ local BACK = defines.rail_direction.back
 ---@param data locomotive_data
 local function update_locomotive(data)
   local locomotive = data.locomotive
+  local interface = data.interface
   local rails = locomotive.train.get_rails()
   -- TODO: this needs to search if there's any power anywhere in between the front & back of train + a few rails out on each end!
   -- adjust function to search from rail A to rail B, returning network_id if there's exactly 1
@@ -224,7 +164,6 @@ local function update_locomotive(data)
       game.print("joining new network " .. front_network)
       local network = global.catenary_networks[front_network]
       -- join this one instead
-      local interface = data.interface
       ---@diagnostic disable-next-line: need-check-nil if we have a cached network this will always be not nil
       interface.teleport(network.transformer.position)
       data.network_id = front_network
@@ -235,22 +174,23 @@ local function update_locomotive(data)
       local network = global.catenary_networks[front_network]
       data.network_id = front_network
 
-      data.interface = locomotive.surface.create_entity{
+      interface = locomotive.surface.create_entity{
         name = "oe-locomotive-interface",
         position = network.transformer.position,
         force = locomotive.force
       }
+      data.interface = interface
     end
   elseif cached_network then  -- make sure we're not in a network
     game.print("leaving network")
-    if data.interface then data.interface.destroy() end
+    if interface then interface.destroy() end
+    interface = nil
     data.interface = nil
     data.network_id = nil
     locomotive.burner.currently_burning = nil
   end
 
   -- update fuel
-  local interface = data.interface
 
   -- if we have an interface that's full
   if interface and interface.energy >= interface.electric_buffer_size then
@@ -274,6 +214,9 @@ local function update_locomotive(data)
   end
 end
 
+
+-- [[ Catenary network updating ]]
+
 -- this sucks but it's 1am i'll figure out something better later
 ---@param catenary_network_data catenary_network_data
 local function update_catenary_network(catenary_id, catenary_network_data)
@@ -290,6 +233,8 @@ local function update_catenary_network(catenary_id, catenary_network_data)
   end
 end
 
+
+
 -- todo: use event.tick, modulo, and a limit number to only update n locomotives per tick
 ---      make the limit a map setting
 ---@param event EventData.on_tick
@@ -302,10 +247,19 @@ local function on_tick(event)
   for _, locomotive_data in pairs(global.locomotives) do
     update_locomotive(locomotive_data)
   end
+
+  for i, pole in pairs(global.queued_network_changes) do
+    if pole.valid then
+      game.print("queued recursive update of " .. pole.unit_number)
+      catenary_utils.recursively_update_network(pole, global.electric_network_lookup[pole.electric_network_id])
+    else
+      game.print("queued recursive update of not valid pole.")
+    end
+    global.queued_network_changes[i] = nil
+  end
 end
 
 script.on_event(defines.events.on_tick, on_tick)
-
 
 
 
@@ -319,14 +273,21 @@ local function initalize()
   global.catenary_networks = global.catenary_networks or {}
 
   -- map of electric_network_id to catenary network_id <br>
-  -- updated when electric networks change
+  -- used for determining what network a pole is in
+  -- updated when electric network of transformer changes
   global.electric_network_lookup = global.electric_network_lookup or {}
 
   -- map of rail LuaEntity.unit_number to catenary network_id
+  -- used for determining locomotive power
+  -- updated when poles are placed/removed
   global.rail_number_lookup = global.rail_number_lookup or {}
+
+  -- list of poles who's electric network may have changed and needs checking
+  -- used to update pole catenary networks after one is destroyed
+  global.queued_network_changes = global.queued_network_changes or {}
 end
 
--- called every time the game loads. cannot access the game object
+-- called every time the game loads. cannot access the game object or global table
 local function loadalize()
 
 end
@@ -363,7 +324,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
   if command.parameter then
     options = util.split(command.parameter, " ")
   else
-    game.print("commands: all, find, clear, initalize")
+    game.print("commands: all, find, update_loco, show_rails, clear, initalize")
     return
   end
 
@@ -378,6 +339,20 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
 
   if subcommand == "update_loco" then
     update_locomotive(global.locomotives[game.player.selected.unit_number])
+    return
+  end
+
+  if subcommand == "show_rails" then
+    rendering.clear(script.mod_name)
+    local all_rails = player.surface.find_entities_filtered{
+      type = {"straight-rail", "curved-rail"}
+    }
+    for _, rail in pairs(all_rails) do
+      local id = global.rail_number_lookup[rail.unit_number]
+      if id then
+        highlight(rail, id, {0, 1, 1})
+      end
+    end
     return
   end
 

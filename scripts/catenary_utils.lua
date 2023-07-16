@@ -77,14 +77,6 @@ local function get_adjacent_rail(pole, direction)
 end
 
 
--- checks to make sure a rail doesn't already have any catenary poles on it
----@param rail LuaEntity
----@return boolean
-local function check_rail_is_clear(rail)
-  return #rail.surface.find_entities_filtered{position = rail.position, radius = 2, name = "oe-catenary-pole"} == 0
-end
-
-
 -- places the appropriate graphics entity for that direction at the position of the pole
 ---@param pole LuaEntity doesn't actually need to be a pole, just used for surface & position & whatnot
 ---@param name string the name of the pole
@@ -139,6 +131,16 @@ local function get_direction(pole)
       or (graphics_entity.graphics_variation - 1)
 end
 
+-- sets the network for a pole's rail
+---@param pole LuaEntity
+---@param catenary_id number? the id of the catenary network, or nil for no network
+local function set_network(pole, catenary_id)
+  local rail = get_adjacent_rail(pole, get_direction(pole))
+  if rail then
+    global.rail_number_lookup[rail.unit_number] = catenary_id
+  end
+end
+
 
 -- attempts to connect two poles, failing if they're not in the same network <br>
 -- if this_pole doesn't have a network, it's added to the other_pole's network
@@ -164,12 +166,8 @@ local function connect_poles(this_pole, other_pole)
     this_pole.teleport(pos)
     --return success  -- we assume teleportation always succeeds bc they're electric poles
 
-    if success then
-      local rail = get_adjacent_rail(this_pole, get_direction(this_pole))
-      if rail then
-        local catenary_id = global.electric_network_lookup[this_pole.electric_network_id]
-        global.rail_number_lookup[rail.unit_number] = catenary_id
-      end
+    if success then  -- this still might end up with no network, if both poles don't have a catenary network
+      set_network(this_pole, global.electric_network_lookup[this_pole.electric_network_id])
     end
 
     return success
@@ -177,10 +175,37 @@ local function connect_poles(this_pole, other_pole)
 end
 
 
+-- temporary list
+local updated_poles = {}
+
+-- internal function to actually do the recursing
+local function recursively_update_pole(this_pole, catenary_id)
+  set_network(this_pole, catenary_id)
+  updated_poles[this_pole.unit_number] = true
+
+  local neighbors = this_pole.neighbours.copper
+  for _, other_pole in pairs(neighbors) do
+    if not updated_poles[other_pole.unit_number] and catenary_utils.is_pole(other_pole) then
+      recursively_update_pole(other_pole, catenary_id)
+    end
+  end
+end
+
+-- recurses down a pole's neighbours, updating the catenary network id of their rails
+---@param pole LuaEntity
+---@param catenary_id number?  the id of the catenary network, or nil for no network
+function catenary_utils.recursively_update_network(pole, catenary_id)
+  updated_poles = {}
+  recursively_update_pole(pole, catenary_id)
+end
+
+
 -- when a (non-ghost) entity is placed that's a catenary pole
 ---@param this_pole LuaEntity
 ---@return string|nil removal_reason string if the placement should be canceled, or nil if success
 function catenary_utils.on_pole_placed(this_pole)
+  game.print("placed pole id: " .. this_pole.unit_number)
+
   -- figure out what direction we're facing
   local direction = get_direction(this_pole)
 
@@ -188,6 +213,7 @@ function catenary_utils.on_pole_placed(this_pole)
   local rail = get_adjacent_rail(this_pole, direction)
   if not rail then
     game.print("no adjacent rail found")
+    remove_pole_graphics(this_pole)
     return "oe-invalid-pole-position"
   end
   local nearby_poles, far_poles = rail_march.find_all_poles(rail)
@@ -196,9 +222,23 @@ function catenary_utils.on_pole_placed(this_pole)
     game.print("found nearby #" .. i .. ": " .. other_pole.name)
     highlight(other_pole, i, {0, 1, 0})
     if other_pole ~= this_pole then
+      remove_pole_graphics(this_pole)
       return "oe-pole-too-close"
     end
   end
+
+  -- placement is valid, if this is a transformer, create catenary network
+  if this_pole.name == "oe-transformer" then
+    game.print("network create pole id: " .. this_pole.unit_number)
+    -- use the transformer's unit_number as the network_id
+    global.catenary_networks[this_pole.unit_number] = {
+      transformer = this_pole,
+      electric_network_id = this_pole.electric_network_id
+    }
+    global.electric_network_lookup[this_pole.electric_network_id] = this_pole.unit_number
+  end
+
+  -- finally, connect to other poles
 
   for i, other_pole in pairs(far_poles) do
     game.print("found far #" .. i .. ": " .. other_pole.name)
@@ -206,6 +246,9 @@ function catenary_utils.on_pole_placed(this_pole)
     game.print("connecting poles")
     connect_poles(this_pole, other_pole)
   end
+
+  -- update network
+  catenary_utils.recursively_update_network(this_pole, global.electric_network_lookup[this_pole.electric_network_id])
 
   return nil
 end
@@ -228,6 +271,22 @@ function catenary_utils.on_pole_removed(pole)
   local rail = get_adjacent_rail(pole, get_direction(pole))
   if rail then
     global.rail_number_lookup[rail.unit_number] = nil
+  end
+
+  -- if a transformer was removed, remove the global data for it
+  -- TODO: remove locomotive interfaces (could we just delete them? locomotive updating will do a valid check)
+  --  when leaving a network a locomotive will remove it's interface anyways
+  if pole.name == "oe-transformer" then
+    global.catenary_networks[pole.unit_number] = nil
+    global.electric_network_lookup[pole.electric_network_id] = nil  -- todo: see if there's other transformers for this network?
+  end
+
+  -- queue neighbors to recursively update
+  local neighbors = pole.neighbours.copper
+  for _, other_pole in pairs(neighbors) do
+    if catenary_utils.is_pole(other_pole) then
+      global.queued_network_changes[#global.queued_network_changes+1] = other_pole
+    end
   end
 
   -- do this after we call get_direction
