@@ -23,6 +23,33 @@ local function generate_placer(entity_to_place, placer_prototype, additional_pro
   return placer
 end
 
+-- creates an entity prototype that mimics another entity
+local function mimic(entity_prototype, properties)
+  local mimic_prototype = {
+    localised_name = {"entity-name." .. entity_prototype.name},
+    localised_description = {"entity-description." .. entity_prototype.name},
+    icon = entity_prototype.icon,  -- whichever isn't defined will just be nil
+    icons = entity_prototype.icons,
+    icon_size = entity_prototype.icon_size,
+    icon_mipmaps = entity_prototype.icon_mipmaps,
+    subgroup = "oe-other",
+    order = "oe-internal",
+    selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
+    selectable_in_game = true,  -- false,
+    collision_mask = {},        -- collide with nothing (anything can be placed overtop it)
+    flags = {}
+  }
+
+  for k, v in pairs(properties) do
+    mimic_prototype[k] = v
+  end
+
+  table.insert(mimic_prototype.flags, "hidden")
+  table.insert(mimic_prototype.flags, "not-flammable")
+
+  return mimic_prototype
+end
+
 
 
 -- [[ Constants ]] --
@@ -85,6 +112,24 @@ transformer.maximum_wire_distance = 9   -- medium-electric-pole
 transformer.supply_area_distance = 0.5  -- only inside of it since it's 2x2
 transformer.build_grid_size = 2         -- ensure ghosts also follow the rail grid
 
+-- simple-entity for graphics for orthogonal directions
+local transformer_orthogonal = mimic(transformer, {
+  type = "simple-entity-with-owner",
+  name = "oe-transformer-orthogonal",
+  flags = {"not-rotatable"},
+  selectable_in_game = false,
+  build_grid_size = 2,
+  picture = {
+    sheet = {
+      filename = graphics .. "catenary-pole/direction-orthogonal.png",
+      priority = "extra-high",
+      size = 76,
+      shift = util.by_pixel(-0.5, -0.5),
+      scale = 0.5
+    }
+  }
+})
+
 -- dummy placement entity, immediatley replaced by the real one in control.lua
 local transformer_placer = generate_placer(transformer, "train-stop", {
   animation_ticks_per_frame = 1,
@@ -119,19 +164,139 @@ local transformer_recipe = {
   result = "oe-transformer"
 }
 
-data:extend{transformer, transformer_placer, transformer_item, transformer_recipe}
+data:extend{transformer, transformer_orthogonal, transformer_placer, transformer_item, transformer_recipe}
 
 
 -- [[ Overhead power line pylons ]] --
 
+-- power pole
 local catenary_pole = table.deepcopy(data.raw["electric-pole"]["medium-electric-pole"])
 catenary_pole.name = "oe-catenary-pole"
 catenary_pole.icons = {{icon = "__base__/graphics/icons/medium-electric-pole.png", tint = {r = 1, g = 1, b = 0.7, a = 1}}}
 catenary_pole.icon_size = 64
 catenary_pole.icon_mipmaps = 4
 catenary_pole.minable.result = "oe-catenary-pole"
-catenary_pole.maximum_wire_distance = 0  -- all poles are connected to their network's transformer's power pole on the hidden surface
-catenary_pole.supply_area_distance = 0   --  this is done so that all the poles are connected to an electrical network, as opposed to each being their own network (very laggy)
+catenary_pole.maximum_wire_distance = 0.75  -- allow connecting to 2x2 poles inside of it, but not anything outside of it so player can't change connections)
+catenary_pole.supply_area_distance = 0
+catenary_pole.flags = {"player-creation", "placeable-player", "building-direction-8-way", "filter-directions"}
+
+-- simple-entity for graphics for orthogonal directions
+local catenary_pole_orthogonal = mimic(catenary_pole, {
+  type = "simple-entity-with-owner",
+  name = "oe-catenary-pole-orthogonal",
+  --flags = {"building-direction-8-way"},  -- only works in editor; lua can't set it to diagonal values
+  collision_box = {{-0.35, -0.35}, {0.35, 0.35}},
+  selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
+  random_variation_on_create = false,
+  pictures = {
+    sheet = {
+      --{
+      variation_count = 8,
+      filename = graphics .. "catenary-pole/direction-orthogonal.png",
+      priority = "extra-high",
+      size = 76,
+      shift = util.by_pixel(-0.5, -0.5),
+      scale = 0.5
+    }  --[[,
+      {
+        filename = graphics .. "catenary-pole/direction-diagonal.png",
+        priority = "extra-high",
+        size = 76,
+        shift = util.by_pixel(-0.5, -0.5),
+        scale = 0.5
+      }
+    }]]
+  }
+  --[=[animations = {
+    --[[sheet = {
+      filename = graphics .. "catenary-pole/direction-orthogonal.png",
+      priority = "extra-high",
+      size = 76,
+      shift = util.by_pixel(-0.5, -0.5),
+      scale = 0.5
+    },]]
+    sheet = {
+      --{
+      variation_count = 8,
+      filename = graphics .. "catenary-pole/direction-orthogonal.png",
+      priority = "extra-high",
+      width = 76,
+      height = 76,
+      shift = util.by_pixel(-0.5, -0.5),
+      scale = 0.5,
+      line_length = 1
+      --},
+      --[[{
+        variation_count = 8,
+        filename = graphics .. "catenary-pole/direction-orthogonal.png",
+        priority = "extra-high",
+        size = 76,
+        shift = util.by_pixel(-0.5, -0.5),
+        scale = 0.5,
+        x = 76
+      },
+      {
+        variation_count = 8,
+        filename = graphics .. "catenary-pole/direction-orthogonal.png",
+        priority = "extra-high",
+        size = 76,
+        shift = util.by_pixel(-0.5, -0.5),
+        scale = 0.5,
+        x = 76 * 2
+      },
+      {
+        variation_count = 8,
+        filename = graphics .. "catenary-pole/direction-orthogonal.png",
+        priority = "extra-high",
+        size = 76,
+        shift = util.by_pixel(-0.5, -0.5),
+        scale = 0.5,
+        x = 76 * 3
+      },]]
+      --[[{
+        variation_count = 8,
+        filename = graphics .. "catenary-pole/direction-orthogonal.png",
+        priority = "extra-high",
+        size = 76,
+        shift = util.by_pixel(-0.5, -0.5),
+        scale = 0.5,
+        x = 76 * 4
+      },
+      {
+        variation_count = 8,
+        filename = graphics .. "catenary-pole/direction-orthogonal.png",
+        priority = "extra-high",
+        size = 76,
+        shift = util.by_pixel(-0.5, -0.5),
+        scale = 0.5,
+        x = 76 * 5
+      },
+      {
+        variation_count = 8,
+        filename = graphics .. "catenary-pole/direction-orthogonal.png",
+        priority = "extra-high",
+        size = 76,
+        shift = util.by_pixel(-0.5, -0.5),
+        scale = 0.5,
+        x = 76 * 6
+      },
+      {
+        variation_count = 8,
+        filename = graphics .. "catenary-pole/direction-orthogonal.png",
+        priority = "extra-high",
+        size = 76,
+        shift = util.by_pixel(-0.5, -0.5),
+        scale = 0.5,
+        x = 76 * 7
+      }]]
+    }
+  }]=]
+})
+
+-- simple-entity for graphics for diagonal directions
+local catenary_pole_diagonal = table.deepcopy(catenary_pole_orthogonal)
+catenary_pole_diagonal.name = "oe-catenary-pole-diagonal"
+--catenary_pole_diagonal.picture.sheet.filename = graphics .. "catenary-pole/direction-diagonal.png"
 
 -- dummy placement entity, immediatley replaced by the real one in control.lua
 local catenary_pole_placer = generate_placer(catenary_pole, "rail-signal", {
@@ -163,7 +328,7 @@ local catenary_pole_recipe = {
   result = "oe-catenary-pole"
 }
 
-data:extend{catenary_pole, catenary_pole_placer, catenary_pole_item, catenary_pole_recipe}
+data:extend{catenary_pole, catenary_pole_orthogonal, catenary_pole_diagonal, catenary_pole_placer, catenary_pole_item, catenary_pole_recipe}
 
 
 -- [[ electric locomotive interface ]] --
@@ -171,20 +336,10 @@ data:extend{catenary_pole, catenary_pole_placer, catenary_pole_item, catenary_po
 --  teleported around by the script to be under the correct overhead network's transformer
 -- no associated item or recipe
 
-local locomotive_interface = {
+local locomotive_interface = mimic(locomotive, {
   type = "electric-energy-interface",
   name = "oe-locomotive-interface",
-  localised_name = {"entity-name.oe-electric-locomotive"},                -- use the same name, description, and icon from the locomotive
-  localised_description = {"entity-description.oe-electric-locomotive"},  --  so it looks right in the electric network stats screen
-  icon = locomotive.icon,
-  icon_size = locomotive.icon_size,
-  icon_mipmaps = locomotive.icon_mipmaps,
-  flags = {"placeable-player", "placeable-off-grid", "hidden", "not-flammable"},
-  max_health = 150,
-  -- collision_box = {{0, 0}, {0, 0}},
-  selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
-  selectable_in_game = true,  -- false,
-  collision_mask = {},        -- collide with nothing (anything can be placed overtop it)
+  flags = {"placeable-off-grid"},
   energy_source = {
     type = "electric",
     usage_priority = "secondary-input",
@@ -200,7 +355,7 @@ local locomotive_interface = {
     width = 1,
     height = 1
   }
-}
+})
 
 data:extend{locomotive_interface}
 
@@ -252,7 +407,7 @@ internal_fuel_category_tooltip.name = "tooltip-category-" .. internal_fuel_categ
 data:extend{internal_fuel_category, internal_fuel_item, internal_fuel_category_tooltip}
 
 
--- [[ Technologies ]] --
+-- [[ Technologies & misc ]] --
 
 data:extend{
   {  -- Electric railway technology
@@ -300,7 +455,13 @@ data:extend{
       time = 30
     },
     order = "c-g-a-a-a"  -- after electric-railway (c-g-a-a)
-  }
+  },
+  {
+    type = "item-subgroup",
+    name = "oe-other",
+    group = "other",
+    order = "zz"
+  },
 }
 
 

@@ -9,7 +9,9 @@
 ---@field transformer LuaEntity   The transformer powering this catenary network
 
 util = require 'util'
-local rail_march = require 'scripts.rail_march'
+local catenary_utils = require 'scripts.catenary_utils'
+---@diagnostic disable-next-line: lowercase-global
+rail_march = require 'scripts.rail_march'
 
 if script.active_mods["gvv"] then require("__gvv__.gvv")() end
 
@@ -30,19 +32,19 @@ local function cancel_entity_creation(entity, event, reason)
   -- if it's already placed, Put That Thing Back Where It Came From Or So Help Me!
   local item = entity.prototype.items_to_place_this and entity.prototype.items_to_place_this[1]
   local picked_up = false
-  if player then
+  if player then  -- put it back in the player
     local mine = player.mine_entity(entity, false)
     if mine then
       picked_up = true
     elseif item then
       picked_up = player.insert(item) > 0
     end
-  end
+  end  -- or put it back in the robot
   if not picked_up and item and event.robot then
     local inventory = event.robot.get_inventory(defines.inventory.robot_cargo)
     ---@diagnostic disable-next-line need-check-nil
     picked_up = inventory.insert(item) > 0
-  end
+  end  -- or just spill it
   if not picked_up and item then
     entity.surface.spill_item_stack(
       entity.position, item,
@@ -56,13 +58,6 @@ local function cancel_entity_creation(entity, event, reason)
   end
 end
 
-
--- checks to make sure a rail doesn't already have any catenary poles on it
----@param rail LuaEntity
----@return boolean
-local function check_rail_is_clear(rail)
-  return #rail.surface.find_entities_filtered{position = rail.position, radius = 2, name = "oe-catenary-pole"} == 0
-end
 
 
 ---@param effective_name string the actual name of the entity
@@ -84,23 +79,25 @@ local function on_entity_created(event)
   -- name of the entity this placer is placing, or nil if not a placer
   local placer_target = string.match(entity.name, "^(oe%-.-)%-placer$")
   -- name of the entity this entity will eventually be
-  local effective_name = placer_target                                                                                     -- real placer
+  --[[local effective_name = placer_target                                                                                     -- real placer
       or (entity.name == "entity-ghost" and (string.match(entity.ghost_name, "^(oe%-.-)%-placer$") or entity.ghost_name))  -- ghost placer or ghost entity
       or entity.name                                                                                                       -- real entity
+  ]]
 
   --game.print("placer_name: " .. (placer_target or "nil") .. " effective_name: " .. effective_name)
 
   -- if it's an entity we have placement restrictions for, check them
-  if effective_name == "oe-transformer" then
+  --[[if effective_name == "oe-transformer" then
     local cancel_reason = check_placement(effective_name, entity)
     if cancel_reason then
       cancel_entity_creation(entity, event, {cancel_reason, {"entity-name." .. effective_name}})
       return
     end
-  end
+  end]]
+
 
   -- if an actual placer got placed, convert it to it's target
-  if placer_target then  -- note that this only runs when the player places the item. bots building ghosts immediatley places the real entity
+  --[[if placer_target == "oe-transformer" then  -- note that this only runs when the player places the item. bots building ghosts immediatley places the real entity
     game.print("converting " .. entity.name .. " to " .. placer_target)
     local new_entity = entity.surface.create_entity{
       name = placer_target,
@@ -113,13 +110,29 @@ local function on_entity_created(event)
     if not new_entity or not new_entity.valid then error("creating entity " .. placer_target .. " failed unexpectedly") end
     -- run the rest of this handler with the real entity
     entity = new_entity
+  else]]
+  if placer_target then  -- any other placers are for catenary poles
+    game.print("catenary_utils converting " .. entity.name .. " to " .. placer_target)
+    entity = catenary_utils.handle_placer(entity, placer_target)
   end
 
   -- the real entity actually got built, run on_build code for them
 
-  -- transformer: create catenary network
+  -- catenary poles: check if valid space, check if can create pole connections
+  if catenary_utils.is_pole(entity) then
+    if not catenary_utils.on_pole_placed(entity) then
+      cancel_entity_creation(entity, event, {"cant-build-reason.oe-pole-too-close"})
+      return
+    end
+
+    -- any rails: check catenary pole connections.  checking type makes this work with other mods' rails
+  elseif entity.type == "straight-rail" or entity.type == "curved-rail" then
+    catenary_utils.on_rail_placed(entity)
+  end
+
+  -- transformer: create catenary network.
   if entity.name == "oe-transformer" then
-    global.catenary_networks[entity.unit_number] = {
+    global.catenary_networks[entity.electric_network_id] = {
       transformer = entity
     }
 
@@ -145,6 +158,12 @@ local function on_entity_destroyed(event)
   local entity = event.entity
 
   --game.print("on_destroyed:" .. event.name .. " destroyed:" .. entity.name)
+
+  if catenary_utils.is_pole(entity) then
+    catenary_utils.on_pole_removed(entity)
+  elseif entity.type == "straight-rail" or entity.type == "curved-rail" then
+    catenary_utils.on_rail_removed(entity)
+  end
 
   -- transformer: remove catenary network
   -- TODO: remove locomotive interfaces (could we just delete them? locomotive updating will do a valid check)
@@ -198,7 +217,7 @@ script.on_event(defines.events.on_tick, on_tick)
 local function initalize()
   ---@type locomotive_data[] A mapping of unit_number to locomotive data
   global.locomotives = global.locomotives or {}
-  ---@type catenary_network_data[] A mapping of network_id to catenary network data
+  ---@type catenary_network_data[] A mapping of electric_network_id to catenary network data
   global.catenary_networks = global.catenary_networks or {}
 end
 
@@ -223,7 +242,7 @@ script.on_configuration_changed(initalize)
 
 ---@param entity LuaEntity
 ---@param index number
-local function highlight(entity, index)
+function highlight(entity, index)
   ---@diagnostic disable-next-line: assign-type-mismatch
   rendering.draw_circle{color = {1, 0.7, 0, 1}, radius = 0.5, width = 2, filled = false, target = entity, surface = entity.surface, only_in_alt_mode = true}
   rendering.draw_text{color = {1, 0.7, 0, 1}, text = index, target = entity, surface = entity.surface, only_in_alt_mode = true}
