@@ -4,9 +4,11 @@
 ---@class locomotive_data
 ---@field locomotive LuaEntity    The locomotive this data is for
 ---@field interface LuaEntity? The `electric-energy-interface` this locomotive is using to connect to the electrical network, or nil
+---@field network_id uint      the id of the catenary network this locomotive is attached to
 
 ---@class catenary_network_data
 ---@field transformer LuaEntity   The transformer powering this catenary network
+---@field electric_network_id uint
 
 util = require 'util'
 local catenary_utils = require 'scripts.catenary_utils'
@@ -120,8 +122,9 @@ local function on_entity_created(event)
 
   -- catenary poles: check if valid space, check if can create pole connections
   if catenary_utils.is_pole(entity) then
-    if not catenary_utils.on_pole_placed(entity) then
-      cancel_entity_creation(entity, event, {"cant-build-reason.oe-pole-too-close"})
+    local reason = catenary_utils.on_pole_placed(entity)
+    if reason then
+      cancel_entity_creation(entity, event, {"cant-build-reason." .. reason})
       return
     end
 
@@ -132,9 +135,12 @@ local function on_entity_created(event)
 
   -- transformer: create catenary network.
   if entity.name == "oe-transformer" then
-    global.catenary_networks[entity.electric_network_id] = {
-      transformer = entity
+    -- use the transformer's unit_number as the network_id
+    global.catenary_networks[entity.unit_number] = {
+      transformer = entity,
+      electric_network_id = entity.electric_network_id
     }
+    global.electric_network_lookup[entity.electric_network_id] = entity.unit_number
 
     -- locomotive: create locomotives table entry
   elseif entity.name == "oe-electric-locomotive" then
@@ -168,7 +174,7 @@ local function on_entity_destroyed(event)
   -- transformer: remove catenary network
   -- TODO: remove locomotive interfaces (could we just delete them? locomotive updating will do a valid check)
   if entity.name == "oe-transformer" then
-    global.catenary_networks[entity.electric_network_id] = nil
+    global.catenary_networks[entity.unit_number] = nil
   end
 
   if entity.name == "oe-electric-locomotive" then
@@ -192,17 +198,91 @@ script.on_event({
 
 -- [[ Locomotive updating ]]
 
----@param locomotive LuaEntity
-local function update_locomotive(locomotive)
+---@param locomotive_data locomotive_data
+local function update_locomotive(locomotive_data)
+  local locomotive = locomotive_data.locomotive
+  local rails = locomotive.train.get_rails()
+  local front_network = rail_march.get_network_in_direction(rails[1], defines.rail_direction.front)
+  local back_network = rail_march.get_network_in_direction(rails[1], defines.rail_direction.back)
+  local cached_network = locomotive_data.network_id
 
+  game.print("front: " .. (front_network or "nil") .. " back: " .. (back_network or "nil") .. " cached: " .. (cached_network or "nil"))
+
+  -- check network
+  if front_network and front_network == back_network then
+    -- if we were in a different network
+    if cached_network and cached_network ~= front_network then
+      game.print("joining new network " .. front_network)
+      local network = global.catenary_networks[front_network]
+      -- join this one instead
+      local interface = locomotive_data.interface
+      interface.teleport(network.transformer.position)
+      locomotive_data.network_id = front_network
+
+      -- if we don't have a network we join the new one
+    elseif not cached_network then
+      game.print("joining network")
+      local network = global.catenary_networks[front_network]
+      locomotive_data.network_id = front_network
+
+      locomotive_data.interface = locomotive.surface.create_entity{
+        name = "oe-locomotive-interface",
+        position = network.transformer.position,
+        force = locomotive.force
+      }
+    end
+  else  -- make sure we're not in a network
+    game.print("leaving network")
+    if locomotive_data.interface then locomotive_data.interface.destroy() end
+    locomotive_data.network_id = nil
+    locomotive.burner.currently_burning = nil
+  end
+
+  -- update fuel
+  local interface = locomotive_data.interface
+  if interface and interface.valid then
+    game.print("has interface")
+    -- todo: only update when status of being powered is different than last update
+    local burner = locomotive.burner
+    if interface.energy >= interface.electric_buffer_size then
+      game.print("has enough energy")
+      ---@diagnostic disable-next-line: assign-type-mismatch this is literally just wrong, this does work
+      burner.currently_burning = "oe-internal-fuel"
+      burner.remaining_burning_fuel = 10 ^ 24
+    else
+      game.print("not enough energy")
+      burner.currently_burning = nil
+    end
+  end
+end
+
+-- this sucks but it's 1am i'll figure out something better later
+---@param catenary_network_data catenary_network_data
+local function update_catenary_network(catenary_id, catenary_network_data)
+  local transformer = catenary_network_data.transformer
+  local cached_electric_id = catenary_network_data.electric_network_id
+  local current_electric_id = transformer.electric_network_id
+
+  -- network changed
+  if current_electric_id and current_electric_id ~= cached_electric_id then
+    game.print("network changed from " .. cached_electric_id .. " to " .. current_electric_id)
+    global.electric_network_lookup[cached_electric_id] = nil
+    global.electric_network_lookup[current_electric_id] = catenary_id
+    catenary_network_data.electric_network_id = current_electric_id
+  end
 end
 
 -- todo: use event.tick, modulo, and a limit number to only update n locomotives per tick
 ---      make the limit a map setting
 ---@param event EventData.on_tick
 local function on_tick(event)
-  for _, locomotive_data in ipairs(global.locomotives) do
-    update_locomotive(locomotive_data.locomotive)
+  -- ew, really need to find a set of suitable event handlers for this if possible
+  for id, catenary_network_data in pairs(global.catenary_networks) do
+    update_catenary_network(id, catenary_network_data)
+  end
+
+  for _, locomotive_data in pairs(global.locomotives) do
+    --update_locomotive(locomotive_data)
   end
 end
 
@@ -217,8 +297,15 @@ script.on_event(defines.events.on_tick, on_tick)
 local function initalize()
   ---@type locomotive_data[] A mapping of unit_number to locomotive data
   global.locomotives = global.locomotives or {}
-  ---@type catenary_network_data[] A mapping of electric_network_id to catenary network data
+  ---@type catenary_network_data[] A mapping of network_id to catenary network data
   global.catenary_networks = global.catenary_networks or {}
+
+  -- map of electric_network_id to catenary network_id <br>
+  -- updated when electric networks change
+  global.electric_network_lookup = global.electric_network_lookup or {}
+
+  -- map of rail LuaEntity.unit_number to catenary network_id
+  global.rail_number_lookup = global.rail_number_lookup or {}
 end
 
 -- called every time the game loads. cannot access the game object
@@ -241,59 +328,63 @@ script.on_configuration_changed(initalize)
 -- [[ testing stuff ]] --
 
 ---@param entity LuaEntity
----@param index number
-function highlight(entity, index)
+---@param text string|number
+---@param color table?
+---@diagnostic disable-next-line: lowercase-global
+function highlight(entity, text, color)
   ---@diagnostic disable-next-line: assign-type-mismatch
-  rendering.draw_circle{color = {1, 0.7, 0, 1}, radius = 0.5, width = 2, filled = false, target = entity, surface = entity.surface, only_in_alt_mode = true}
-  rendering.draw_text{color = {1, 0.7, 0, 1}, text = index, target = entity, surface = entity.surface, only_in_alt_mode = true}
+  rendering.draw_circle{color = color or {1, 0.7, 0, 1}, radius = 0.5, width = 2, filled = false, target = entity, surface = entity.surface, only_in_alt_mode = true}
+  rendering.draw_text{color = color or {1, 0.7, 0, 1}, text = text, target = entity, surface = entity.surface, only_in_alt_mode = true}
 end
 
 commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function(command)
+  ---@type LuaPlayer
   local player = game.players[command.player_index]
 
   local options
   if command.parameter then
     options = util.split(command.parameter, " ")
   else
-    game.print("commands: step, find, all, clear")
+    game.print("commands: all, find, clear, initalize")
     return
   end
 
   local subcommand = options[1]
-
-  -- consider LuaEntity.get_rail_segment_rails
-  if subcommand == "step" then
-    --local rail = player.selected.get_connected_rail{rail_direction = options[2] or defines.rail_direction.front, rail_connection_direction = defines.rail_connection_direction.straight}
-
-    local poles = rail_march.find_all_poles(player.selected, tonumber(options[2]) or defines.rail_direction.front)
-
-    if not poles then return end
-
-    for i, pole in pairs(poles) do
-      game.print("found #" .. i .. ": " .. pole.name)
-      highlight(pole, i)
-    end
-
-    -- /c for _, r in pairs((game.player.selected.get_rail_segment_rails(0))) do pcall(r.destroy()) end
-
-    -- (game.player.selected.get_connected_rail{rail_direction=1,rail_connection_direction=1}).destroy()
-  elseif subcommand == "find" then
-    local target = player.selected or player.character
-
-    local entities = target.surface.find_entities_filtered{position = target.position, radius = tonumber(options[2]) or 2, name = "oe-catenary-pole"}
-    --/c game.print(serpent.line(game.player.surface.find_entities_filtered{position=a,radius=1.5,name="oe-catenary-pole"}))
-    for i, pole in pairs(entities) do
-      game.print("found #" .. i .. ": " .. pole.name)
-      highlight(pole, i)
-    end
-
-
-
-    -- need to filter to closest 2 that are on the same rail network
-    --  can't do much better without stepping along rails one by one and checking entities (that would be very bad & laggy)
-  elseif subcommand == "all" then
-
-  elseif subcommand == "clear" then
+  if subcommand == "clear" then
     rendering.clear(script.mod_name)
+    return
+  elseif subcommand == "initalize" then
+    initalize()
+    return
+  end
+
+  if subcommand == "update_loco" then
+    update_locomotive(global.locomotives[game.player.selected.unit_number])
+    return
+  end
+
+  local rail = player.selected
+  if not (rail and rail.valid and (rail.type == "straight-rail" or rail.type == "curved-rail")) then
+    player.print("hover over a rail to use this command")
+    return
+  end
+
+  if subcommand == "all" then
+    local nearby_poles, far_poles = rail_march.find_all_poles(rail)
+
+    for i, pole in pairs(nearby_poles) do
+      game.print("found #" .. i .. ": " .. pole.name)
+      highlight(pole, i, {0, 1, 0})
+    end
+    for i, pole in pairs(far_poles) do
+      game.print("found #" .. i .. ": " .. pole.name)
+      highlight(pole, i, {1, 0, 0})
+    end
+  elseif subcommand == "find" then
+    ---@diagnostic disable-next-line: param-type-mismatch
+    local network_id = rail_march.get_network_in_direction(rail, tonumber(options[2]))
+    game.print("found: " .. (network_id or "no network"))
+  else
+    game.print("unknown command")
   end
 end)

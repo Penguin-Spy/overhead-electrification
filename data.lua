@@ -179,6 +179,7 @@ catenary_pole.minable.result = "oe-catenary-pole"
 catenary_pole.maximum_wire_distance = 0.75  -- allow connecting to 2x2 poles inside of it, but not anything outside of it so player can't change connections)
 catenary_pole.supply_area_distance = 0
 catenary_pole.flags = {"player-creation", "placeable-player", "building-direction-8-way", "filter-directions"}
+catenary_pole.fast_replaceable_group = ""  -- don't fast replace with power poles
 
 -- simple-entity for graphics
 local catenary_pole_graphics = mimic(catenary_pole, {
@@ -186,7 +187,7 @@ local catenary_pole_graphics = mimic(catenary_pole, {
   name = "oe-catenary-pole-graphics",
   flags = {"not-rotatable"},
   collision_box = {{-0.35, -0.35}, {0.35, 0.35}},
-  selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
+  --selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
   random_variation_on_create = false,
   pictures = {
     sheet = {

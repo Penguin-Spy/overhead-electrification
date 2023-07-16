@@ -23,24 +23,6 @@ local function is_big(entity)
   return entity.prototype.building_grid_bit_shift == 2
 end
 
--- attempts to connect two poles, failing if they're not in the same network <br>
--- if this_pole doesn't have a network, it's added to the other_pole's network
----@param this_pole LuaEntity
----@param other_pole LuaEntity
----@return boolean success were the poles connected
-local function connect_poles(this_pole, other_pole)
-  -- if we have a network and it's different
-  if global.catenary_networks[this_pole.electric_network_id] and this_pole.electric_network_id ~= other_pole.electric_network_id then
-    return false  -- don't connect
-  else            -- otherwise, they're the same network or we should connect to theirs
-    -- teleport to the other pole to connect, then teleport back
-    local pos = this_pole.position
-    this_pole.teleport(other_pole.position)
-    local success = this_pole.connect_neighbour(other_pole)
-    this_pole.teleport(pos)
-    return success  -- we assume teleportation always succeeds bc they're electric poles
-  end
-end
 
 -- gets the rail that a catenary pole is next to
 ---@param pole LuaEntity
@@ -51,7 +33,8 @@ local function get_adjacent_rail(pole, direction)
   local pos = pole.position
   local offset = is_big(pole) and 1.5 or 1
 
-  -- yup
+  -- yup. i tried using the util.moveposition function, but the directions are different and there were a bunch of type annotation errors
+  -- and the position vectors are as arrays instead of tables; it was more trouble than it's worth
   if direction == defines.direction.north then
     pos.x = pos.x + offset
   elseif direction == defines.direction.east then  -- down is positive y
@@ -102,10 +85,10 @@ local function check_rail_is_clear(rail)
 end
 
 
--- places the appropriate simple entity for that direction at the position of the pole
+-- places the appropriate graphics entity for that direction at the position of the pole
 ---@param pole LuaEntity doesn't actually need to be a pole, just used for surface & position & whatnot
 ---@param name string the name of the pole
----@param direction defines.direction
+---@param direction defines.direction directions for graphics to face
 local function create_graphics_for_pole(pole, name, direction)
   local graphics_entity = pole.surface.create_entity{
     name = name .. "-graphics",
@@ -119,12 +102,22 @@ local function create_graphics_for_pole(pole, name, direction)
 end
 
 
--- finds the simple entity for the pole that's used for graphics, or creates it if it's missing
+-- removes the graphics entity if it exists
 ---@param pole LuaEntity
----@return LuaEntity simple_entity
+local function remove_pole_graphics(pole)
+  local graphics_entity = pole.surface.find_entity(pole.name .. "-graphics", pole.position)
+  if graphics_entity then
+    graphics_entity.destroy()
+  end
+end
+
+
+-- finds the graphics entity for the pole that's used for graphics, or creates it if it's missing
+---@param pole LuaEntity
+---@return LuaEntity
 local function get_pole_graphics(pole)
   local graphics_entity = pole.surface.find_entity(pole.name .. "-graphics", pole.position)
-  -- if we don't have a simple_entity, make it facing the first rail clockwise (or north if no rails exist)
+  -- if we don't have a graphics_entity, make it facing the first rail clockwise (or north if no rails exist)
   if not graphics_entity then
     local _, direction = get_adjacent_rail(pole)
     if not direction then
@@ -147,43 +140,71 @@ local function get_direction(pole)
 end
 
 
--- when a (non-ghost) entity is placed that's a catenary pole
----@param pole LuaEntity
----@return boolean valid false if the placement should be canceled
-function catenary_utils.on_pole_placed(pole)
-  -- figure out what direction we're facing
+-- attempts to connect two poles, failing if they're not in the same network <br>
+-- if this_pole doesn't have a network, it's added to the other_pole's network
+---@param this_pole LuaEntity
+---@param other_pole LuaEntity
+---@return boolean success were the poles connected
+local function connect_poles(this_pole, other_pole)
+  -- if we have a network and it's different
+  if global.electric_network_lookup[this_pole.electric_network_id] and this_pole.electric_network_id ~= other_pole.electric_network_id then
+    return false  -- don't connect
+  else            -- otherwise, they're the same network or we should connect to theirs
+    -- teleport to the other pole to connect, then teleport back
+    local pos = this_pole.position
+    this_pole.teleport(other_pole.position)
+    local success = this_pole.connect_neighbour(other_pole)
+    this_pole.teleport(pos)
+    --return success  -- we assume teleportation always succeeds bc they're electric poles
 
-  local direction = get_direction(pole)
-  game.print("direction: " .. direction)
+    if success then
+      local rail = get_adjacent_rail(this_pole, get_direction(this_pole))
+      if rail then
+        local catenary_id = global.electric_network_lookup[this_pole.electric_network_id]
+        global.rail_number_lookup[rail.unit_number] = catenary_id
+      end
+    end
+
+    return success
+  end
+end
+
+
+-- when a (non-ghost) entity is placed that's a catenary pole
+---@param this_pole LuaEntity
+---@return string|nil removal_reason string if the placement should be canceled, or nil if success
+function catenary_utils.on_pole_placed(this_pole)
+  -- figure out what direction we're facing
+  local direction = get_direction(this_pole)
 
   -- get the adjacent rail for searching for neighbors
-
-  local rail = get_adjacent_rail(pole, direction)
+  local rail = get_adjacent_rail(this_pole, direction)
   if not rail then
     game.print("no adjacent rail found")
-    -- TODO: something better than this
-    get_pole_graphics(pole).destroy()
-    return false
+    return "oe-invalid-pole-position"
   end
-  local poles = rail_march.find_all_poles(rail, defines.rail_direction.front)
+  local nearby_poles, far_poles = rail_march.find_all_poles(rail)
 
-  if not poles then
-    game.print("no poles found")
-    return true
-  end
-
-  for i, other_pole in pairs(poles) do
-    game.print("found #" .. i .. ": " .. other_pole.name)
-    highlight(other_pole, i)
+  for i, other_pole in pairs(nearby_poles) do
+    game.print("found nearby #" .. i .. ": " .. other_pole.name)
+    highlight(other_pole, i, {0, 1, 0})
+    if other_pole ~= this_pole then
+      return "oe-pole-too-close"
+    end
   end
 
-  local _, other_pole = next(poles)
-  if other_pole then
+  for i, other_pole in pairs(far_poles) do
+    game.print("found far #" .. i .. ": " .. other_pole.name)
+    highlight(other_pole, i, {1, 0, 0})
+  end
+
+  local _, other_pole = next(far_poles)
+  if other_pole and other_pole ~= this_pole then
     game.print("connecting poles")
-    connect_poles(pole, other_pole)
+    connect_poles(this_pole, other_pole)
   end
 
-  return true
+  return nil
 end
 
 
@@ -197,13 +218,14 @@ end
 -- handles cleanup of graphical entities & whatnot
 ---@param pole LuaEntity
 function catenary_utils.on_pole_removed(pole)
-  get_pole_graphics(pole).destroy()
+  game.print("on pole removed")
+  remove_pole_graphics(pole)
 end
 
 
 -- disconnects catenary poles that are connected above this rail
 ---@param rail LuaEntity
-function catenary_utils.on_removed_placed(rail)
+function catenary_utils.on_rail_removed(rail)
 
 end
 
