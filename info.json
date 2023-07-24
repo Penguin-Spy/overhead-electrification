@@ -4,6 +4,5 @@
   "title": "Overhead Electrification (Realistic Electric Trains)",
   "description": "Adds electric trains that are powered by overhead catenary lines. Designed to use minimal scripting for maximum performance.",
   "author": "Penguin_Spy",
-  "factorio_version": "1.1",
-  "dependencies": [ "? informatron >= 0.2.2" ]
+  "factorio_version": "1.1"
 }

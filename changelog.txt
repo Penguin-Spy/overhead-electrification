@@ -1,0 +1,12 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.0.1
+Date: 17.07.2023
+  Features:
+    - Electric locomotives (use power from catenary lines & disable when no power)
+    - Basic catenary line functionality (doesn't work around curves yet)
+    - Catenary line transformer (core entity of a catenary network)
+    - Technologies and recipes for vanilla Factorio
+  Graphics:
+    - Lovely placeholder graphics by yours truly ;)
+  Locale:
+    - Added English translation
