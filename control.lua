@@ -144,18 +144,20 @@ local function on_tick(event)
     global.queued_network_changes[i] = nil
   end
 
-  for _, train in pairs(global.queued_train_state_changes) do
+  for _, train in pairs(global.queued_train_state_changes.next_tick) do
     LocomotiveManager.on_train_changed_state(train)
   end
-  global.queued_train_state_changes = {}
+  global.queued_train_state_changes.next_tick = global.queued_train_state_changes.next_next_tick
+  global.queued_train_state_changes.next_next_tick = {}
 end
 
 --script.on_event(defines.events.on_tick, on_tick)
 script.on_nth_tick(2, on_tick)
 
 
+-- the train.riding_state isn't accurate when this event fires if the train changed to on_the_path :(
 script.on_event(defines.events.on_train_changed_state, function(event)
-  table.insert(global.queued_train_state_changes, event.train)
+  table.insert(global.queued_train_state_changes.next_next_tick, event.train)
 end)
 
 
@@ -182,8 +184,8 @@ local function initalize()
   -- used to update pole catenary networks after one is destroyed
   global.queued_network_changes = global.queued_network_changes or {}
 
-
-  global.queued_train_state_changes = global.queued_train_state_changes or {}
+  -- ew.
+  global.queued_train_state_changes = global.queued_train_state_changes or {next_tick = {}, next_next_tick = {}}
 end
 
 -- called every time the game loads. cannot access the game object or global table
@@ -259,6 +261,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
 
   if subcommand ~= "all" and subcommand ~= "find" then
     game.print("unknown command")
+    return
   end
 
   local rail = player.selected

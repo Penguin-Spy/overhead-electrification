@@ -245,11 +245,11 @@ local locomotive_interface = mimic(locomotive, {
   flags = {"placeable-off-grid"},
   energy_source = {
     type = "electric",
-    usage_priority = "secondary-input",
+    usage_priority = "secondary-input",                     -- can only input, setting energy_production does nothing
     buffer_capacity = const.LOCOMOTIVE_POWER .. "kJ",       -- 1 second of operation
     input_flow_limit = 2 * const.LOCOMOTIVE_POWER .. "kW",  -- recharges in 1 second (each second: consumes LOCOMOTIVE_POWER kJ, recharges LOCOMOTIVE_POWER kJ into buffer)
-    render_no_network_icon = false,                         -- when teleported out of the range of the transformer, should not blink the unplugged symbol
-    render_no_power_icon = false                            -- same with low power symbol
+    --render_no_network_icon = false,                         -- when teleported out of the range of the transformer, should not blink the unplugged symbol
+    --render_no_power_icon = false                            -- same with low power symbol
   },
   energy_usage = locomotive.max_power,
   picture = {

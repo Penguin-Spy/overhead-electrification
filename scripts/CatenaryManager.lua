@@ -19,10 +19,11 @@ local CatenaryManager = {}
 -- checks if an entity is a catenary pole
 ---@param entity LuaEntity
 ---@return boolean
-function CatenaryManager.is_pole(entity)
+local function is_pole(entity)
   local name = entity.name
   return name == "oe-catenary-pole" or name == "oe-transformer"  -- or name == "oe-catenary-double-pole" or name == "oe-catenary-pole-rail-signal", etc
 end
+CatenaryManager.is_pole = is_pole
 
 -- checks if this entity is a 2x2 pole (only 4 rotations)
 ---@param entity LuaEntity
@@ -189,7 +190,7 @@ local function recursively_update_pole(this_pole, catenary_id)
 
   local neighbors = this_pole.neighbours.copper
   for _, other_pole in pairs(neighbors) do
-    if not updated_poles[other_pole.unit_number] and CatenaryManager.is_pole(other_pole) then
+    if not updated_poles[other_pole.unit_number] and is_pole(other_pole) then
       recursively_update_pole(other_pole, catenary_id)
     end
   end
@@ -288,7 +289,7 @@ function CatenaryManager.on_pole_removed(pole)
   -- queue neighbors to recursively update
   local neighbors = pole.neighbours.copper
   for _, other_pole in pairs(neighbors) do
-    if CatenaryManager.is_pole(other_pole) then
+    if is_pole(other_pole) then
       global.queued_network_changes[#global.queued_network_changes+1] = other_pole
     end
   end
