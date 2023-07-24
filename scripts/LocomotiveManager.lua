@@ -18,42 +18,36 @@ local LocomotiveManager = {}
 -- factorio uses lua 5.2, so no <const> attribute :/
 
 local FRONT = defines.rail_direction.front
-local BACK = defines.rail_direction.back
+local BACK  = defines.rail_direction.back
 
-local TRAIN_STATE_ON_THE_PATH = defines.train_state.on_the_path
-local TRAIN_STATE_PATH_LOST = defines.train_state.path_lost
-local TRAIN_STATE_NO_SCHEDULE = defines.train_state.no_schedule
-local TRAIN_STATE_NO_PATH = defines.train_state.no_path
-local TRAIN_STATE_ARRIVE_SIGNAL = defines.train_state.arrive_signal
-local TRAIN_STATE_WAIT_SIGNAL = defines.train_state.wait_signal
-local TRAIN_STATE_ARRIVE_STATION = defines.train_state.arrive_station
-local TRAIN_STATE_WAIT_STATION = defines.train_state.wait_station
-local TRAIN_STATE_MANUAL_CONTROL_STOP = defines.train_state.manual_control_stop
-local TRAIN_STATE_MANUAL_CONTROL = defines.train_state.manual_control
-local TRAIN_STATE_DESTINATION_FULL = defines.train_state.destination_full
 
+local RIDING_STATE_ACCELERATING = defines.riding.acceleration.accelerating
+local RIDING_STATE_BRAKING      = defines.riding.acceleration.braking
+local RIDING_STATE_REVERSING    = defines.riding.acceleration.reversing
+local RIDING_STATE_NOTHING      = defines.riding.acceleration.nothing
+
+
+---@alias PowerState
+---| 0 POWER_STATE_STOPPED
+---| 1 POWER_STATE_MOVING
+---| 2 POWER_STATE_BRAKING
+---| 3 POWER_STATE_MANUAL
 local POWER_STATE_STOPPED = 0
-local POWER_STATE_MOVING = 1
+local POWER_STATE_MOVING  = 1
 local POWER_STATE_BRAKING = 2
-local POWER_STATE_MANUAL = 3
+local POWER_STATE_MANUAL  = 3
+
 
 local BUFFER_CAPACITY = const.LOCOMOTIVE_POWER * 1000
-local POWER_USAGE = const.LOCOMOTIVE_POWER * 1000 / 60
-local YOTTAJOULE = 10 ^ 24  -- 1000000000000000000000000
+local POWER_USAGE     = const.LOCOMOTIVE_POWER * 1000 / 60
+local YOTTAJOULE      = 10 ^ 24  -- 1000000000000000000000000
 
 
 local STATE_COLORS = {
-  [defines.train_state.on_the_path]         = {0, 1, 0, 0.5},      -- green       1 accelerating/maintaining speed
-  [defines.train_state.path_lost]           = {1, 1, 0, 0.5},      -- yellow?     2 unknown, documentation suggests braking
-  [defines.train_state.no_schedule]         = {1, 1, 1, 0.5},      -- white       0 stopped  -- overrides manual_control_stop
-  [defines.train_state.no_path]             = {1, 0, 0, 0.5},      -- red         0 stopped
-  [defines.train_state.arrive_signal]       = {0, 1, 1, 0.5},      -- cyan        2 braking
-  [defines.train_state.wait_signal]         = {0, 0, 1, 0.5},      -- blue        0 stopped
-  [defines.train_state.arrive_station]      = {0, 1, 1, 0.5},      -- cyan        2 braking
-  [defines.train_state.wait_station]        = {0, 0, 1, 0.5},      -- blue        0 stopped
-  [defines.train_state.manual_control_stop] = {0, 1, 1, 0.5},      -- cyan        2 braking
-  [defines.train_state.manual_control]      = {0, 0.5, 0, 0.5},    -- dark green  3 <varies> -- have to check current speed i guess (>0 = consume power)
-  [defines.train_state.destination_full]    = {0.5, 0, 0.5, 0.5},  -- purple      0 stopped
+  [POWER_STATE_STOPPED] = {0, 0, 1, 0.5},    -- blue        0 stopped
+  [POWER_STATE_MOVING]  = {0, 1, 0, 0.5},    -- green       1 accelerating/maintaining speed
+  [POWER_STATE_BRAKING] = {0, 1, 1, 0.5},    -- cyan        2 braking
+  [POWER_STATE_MANUAL]  = {0, 0.5, 0, 0.5},  -- dark green  3 <varies> -- have to check current speed i guess (>0 = consume power)
 }
 
 ---@param locomotive LuaEntity
@@ -76,16 +70,136 @@ function LocomotiveManager.on_locomotive_removed(locomotive)
 end
 
 
+-- sets the `power_usage` and `power_production` of the interface to the appropriate value for the power_state <br>
+---@param interface LuaEntity
+---@param power_state PowerState
+local function set_interface_power(interface, power_state)
+  if power_state == POWER_STATE_MOVING then
+    interface.power_usage = POWER_USAGE
+    interface.power_production = 0
+  elseif power_state == POWER_STATE_STOPPED then  -- also used by locomotives facing backwards that aren't helping the train accelerate
+    interface.power_usage = 0
+    interface.power_production = 0
+  elseif power_state == POWER_STATE_BRAKING then
+    interface.power_usage = 0
+    -- TODO: check if force has regen braking researched (what level if multiple levels?)
+    -- use the force of the interface entity
+    interface.power_production = 0
+  else  -- POWER_STATE_MANUAL
+    interface.power_usage = 0
+    interface.power_production = 0
+    -- TODO: if speed > 0 consume power (or speed > speed last update?)
+    -- would need to run this part in update_locomotive
+    -- wait i could probably use the train.riding_state (.acceleration) to know what the player is doing (still in update_locomotive)
+  end
+end
+
+---@param locomotive LuaEntity
+---@param power_state PowerState
+local function set_locomotive_power_state(locomotive, power_state)
+  if locomotive.name == "oe-electric-locomotive" then
+    local data = global.locomotives[locomotive.unit_number]
+    local interface = data.interface
+
+    -- debug: color based on state
+    locomotive.color = STATE_COLORS[power_state]
+
+    -- update consumption/production of interface
+    if interface and interface.valid and power_state ~= data.power_state then
+      --game.print("switching to " .. power_state .. " (was " .. data.power_state .. ")")
+      set_interface_power(interface, power_state)
+      data.power_state = power_state
+    end
+  end
+end
+
+-- updates the power_state & interface power fields of each locomotive in the train
+---@param train LuaTrain
+function LocomotiveManager.on_train_changed_state(train)
+  -- update power_state
+  --[[local state = train.state
+  local power_state
+  if state == TRAIN_STATE_ON_THE_PATH then  -- checks are roughly ordered by how common they are (so short-circuit evaluation finds the right state faster)
+    power_state = POWER_STATE_MOVING
+  elseif state == TRAIN_STATE_WAIT_STATION or state == TRAIN_STATE_WAIT_SIGNAL
+      or state == TRAIN_STATE_DESTINATION_FULL
+      or state == TRAIN_STATE_NO_PATH or state == TRAIN_STATE_NO_SCHEDULE then
+    power_state = POWER_STATE_STOPPED
+  elseif state == TRAIN_STATE_ARRIVE_SIGNAL or state == TRAIN_STATE_ARRIVE_STATION
+      or state == TRAIN_STATE_MANUAL_CONTROL_STOP or state == TRAIN_STATE_PATH_LOST then
+    power_state = POWER_STATE_BRAKING
+  else  -- TRAIN_STATE_MANUAL_CONTROL
+    power_state = POWER_STATE_MANUAL
+  end]]
+
+  -- set the locomotives that are accelerating/decelerating the train to be using/producing power, and the other ones to be doing nothing
+  --[[if train.speed > 0 then
+    for _, locomotive in pairs(train.locomotives.front_movers) do
+      set_locomotive_power_state(locomotive, power_state)
+      -- debug: color based on state
+      locomotive.color = STATE_COLORS[state]
+    end
+    for _, locomotive in pairs(train.locomotives.back_movers) do
+      set_locomotive_power_state(locomotive, POWER_STATE_STOPPED)
+      locomotive.color = {0, 0, 0}
+    end
+  else
+    for _, locomotive in pairs(train.locomotives.front_movers) do
+      set_locomotive_power_state(locomotive, POWER_STATE_STOPPED)
+      locomotive.color = {0, 0, 0}
+    end
+    for _, locomotive in pairs(train.locomotives.back_movers) do
+      set_locomotive_power_state(locomotive, power_state)
+      locomotive.color = STATE_COLORS[state]
+    end
+  end]]
+
+  --local accelerators = train.locomotives.front_movers
+  --local not_accelerators = train.locomotives.back_movers
+  --if train.riding_state.acceleration == 0 then
+  --  accelerators, not_accelerators = not_accelerators, accelerators
+  --end
+
+  local acceleration = train.riding_state.acceleration
+  local front_state, back_state = -1, -1
+  if acceleration == RIDING_STATE_ACCELERATING then
+    front_state = POWER_STATE_MOVING
+    back_state = POWER_STATE_STOPPED
+  elseif acceleration == RIDING_STATE_REVERSING then
+    front_state = POWER_STATE_STOPPED
+    back_state = POWER_STATE_MOVING
+  elseif acceleration == RIDING_STATE_BRAKING then
+    front_state = POWER_STATE_BRAKING
+    back_state = POWER_STATE_BRAKING
+  elseif acceleration == RIDING_STATE_NOTHING then
+    front_state = POWER_STATE_STOPPED
+    back_state = POWER_STATE_STOPPED
+  else
+    error("unknown riding state " .. acceleration)
+  end
+
+  game.print("riding state: " .. acceleration .. "  front_state: " .. front_state .. "  back_state: " .. back_state)
+
+  for _, locomotive in pairs(train.locomotives.front_movers) do
+    set_locomotive_power_state(locomotive, front_state)
+  end
+  for _, locomotive in pairs(train.locomotives.back_movers) do
+    set_locomotive_power_state(locomotive, back_state)
+  end
+end
+
+
+-- handles updating the network/burning state of an individual locomotive
 ---@param data locomotive_data
 function LocomotiveManager.update_locomotive(data)
   local locomotive = data.locomotive
   local interface = data.interface
-  local rails = locomotive.train.get_rails()
+  --local rails = locomotive.train.get_rails()
   -- TODO: this needs to search if there's any power anywhere in between the front & back of train + a few rails out on each end!
   -- adjust function to search from rail A to rail B, returning network_id if there's exactly 1
   -- or something basically just don't do from whatever the first rail in the list is
-  local front_network = RailMarcher.get_network_in_direction(rails[1], FRONT)
-  local back_network = RailMarcher.get_network_in_direction(rails[1], BACK)
+  local front_network = RailMarcher.get_network_in_direction(locomotive.train.front_rail, FRONT)
+  local back_network = RailMarcher.get_network_in_direction(locomotive.train.back_rail, BACK)
   local cached_network = data.network_id
 
   --game.print("front: " .. (front_network or "nil") .. " back: " .. (back_network or "nil") .. " cached: " .. (cached_network or "nil"))
@@ -112,7 +226,9 @@ function LocomotiveManager.update_locomotive(data)
         position = network.transformer.position,
         force = locomotive.force
       }
+      if not (interface and interface.valid) then error("creating locomotive interface failed unexpectedly") end
       data.interface = interface
+      set_interface_power(interface, data.power_state)
     end
   elseif cached_network then  -- make sure we're not in a network
     game.print("leaving network")
@@ -120,53 +236,19 @@ function LocomotiveManager.update_locomotive(data)
     interface = nil
     data.interface = nil
     data.network_id = nil
-    locomotive.burner.currently_burning = nil
+    --locomotive.burner.currently_burning = nil
+    -- the next if statement will remove the locomotive power
   end
 
   -- can't be powered, remove fuel & stop processing
   if not interface then  -- we don't really care what state the loco is in, it's not powered
     locomotive.burner.currently_burning = nil
-    if data.is_burning then
-      data.is_burning = false
-    end
+    --if data.is_burning then
+    data.is_burning = false
+    --end
     return
   end
 
-  -- debug: color based on state
-  locomotive.color = STATE_COLORS[locomotive.train.state]
-
-  -- update power_state
-  local state = locomotive.train.state
-  local power_state
-  if state == TRAIN_STATE_ON_THE_PATH then  -- checks are roughly ordered by how common they are (so short-circuit evaluation finds the right state faster)
-    power_state = POWER_STATE_MOVING
-  elseif state == TRAIN_STATE_WAIT_STATION or state == TRAIN_STATE_WAIT_SIGNAL
-      or state == TRAIN_STATE_DESTINATION_FULL
-      or state == TRAIN_STATE_NO_PATH or state == TRAIN_STATE_NO_SCHEDULE then
-    power_state = POWER_STATE_STOPPED
-  elseif state == TRAIN_STATE_ARRIVE_SIGNAL or state == TRAIN_STATE_ARRIVE_STATION
-      or state == TRAIN_STATE_MANUAL_CONTROL_STOP or state == TRAIN_STATE_PATH_LOST then
-    power_state = POWER_STATE_BRAKING
-  else  -- TRAIN_STATE_MANUAL_CONTROL
-    power_state = POWER_STATE_MANUAL
-  end
-
-  -- update consumption/production of interface
-  if power_state ~= data.power_state then
-    game.print("switching to " .. power_state .. " (was " .. data.power_state .. ")")
-    if power_state == POWER_STATE_MOVING then
-      interface.power_usage = POWER_USAGE
-      interface.power_production = 0
-    elseif power_state == POWER_STATE_STOPPED then
-      interface.power_usage = 0
-    elseif power_state == POWER_STATE_BRAKING then
-      interface.power_usage = 0
-      -- check if force has regen braking researched (what level if multiple levels?)
-    else  -- POWER_STATE_MANUAL
-      interface.power_usage = 0
-    end
-    data.power_state = power_state
-  end
 
   -- update fuel
 

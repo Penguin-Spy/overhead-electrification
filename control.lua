@@ -4,7 +4,6 @@
 
 
 util = require 'util'
----@diagnostic disable-next-line: lowercase-global
 RailMarcher = require 'scripts.RailMarcher'
 local CatenaryManager = require 'scripts.CatenaryManager'
 local LocomotiveManager = require 'scripts.LocomotiveManager'
@@ -144,11 +143,20 @@ local function on_tick(event)
     end
     global.queued_network_changes[i] = nil
   end
+
+  for _, train in pairs(global.queued_train_state_changes) do
+    LocomotiveManager.on_train_changed_state(train)
+  end
+  global.queued_train_state_changes = {}
 end
 
 --script.on_event(defines.events.on_tick, on_tick)
 script.on_nth_tick(2, on_tick)
 
+
+script.on_event(defines.events.on_train_changed_state, function(event)
+  table.insert(global.queued_train_state_changes, event.train)
+end)
 
 
 -- [[ Initalization ]] --
@@ -173,6 +181,9 @@ local function initalize()
   -- list of poles who's electric network may have changed and needs checking
   -- used to update pole catenary networks after one is destroyed
   global.queued_network_changes = global.queued_network_changes or {}
+
+
+  global.queued_train_state_changes = global.queued_train_state_changes or {}
 end
 
 -- called every time the game loads. cannot access the game object or global table
@@ -227,6 +238,11 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
     return
   end
 
+  if subcommand == "update_train" then
+    LocomotiveManager.on_train_changed_state(game.player.selected.train)
+    return
+  end
+
   if subcommand == "show_rails" then
     rendering.clear(script.mod_name)
     local all_rails = player.surface.find_entities_filtered{
@@ -239,6 +255,10 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
       end
     end
     return
+  end
+
+  if subcommand ~= "all" and subcommand ~= "find" then
+    game.print("unknown command")
   end
 
   local rail = player.selected
@@ -262,7 +282,5 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
     ---@diagnostic disable-next-line: param-type-mismatch
     local network_id = RailMarcher.get_network_in_direction(rail, tonumber(options[2]))
     game.print("found: " .. (network_id or "no network"))
-  else
-    game.print("unknown command")
   end
 end)
