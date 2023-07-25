@@ -67,7 +67,6 @@ local function on_entity_created(event)
   local placer_target = string.match(entity.name, "^(oe%-.-)%-placer$")
 
   if placer_target then  -- all placers are for catenary poles
-    game.print("catenary_utils converting " .. entity.name .. " to " .. placer_target)
     entity = CatenaryManager.handle_placer(entity, placer_target)
   end
 
@@ -222,7 +221,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
   if command.parameter then
     options = util.split(command.parameter, " ")
   else
-    game.print("commands: all, find, update_loco, show_rails, clear, initalize")
+    game.print("commands: all, find, next, update_loco, update_train, show_rails, clear, initalize")
     return
   end
 
@@ -259,7 +258,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
     return
   end
 
-  if subcommand ~= "all" and subcommand ~= "find" then
+  if subcommand ~= "all" and subcommand ~= "find" and subcommand ~= "next" then
     game.print("unknown command")
     return
   end
@@ -281,9 +280,28 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
       game.print("found #" .. i .. ": " .. pole.name)
       highlight(pole, i, {1, 0, 0})
     end
+
+    --
   elseif subcommand == "find" then
     ---@diagnostic disable-next-line: param-type-mismatch
     local network_id = RailMarcher.get_network_in_direction(rail, tonumber(options[2]))
     game.print("found: " .. (network_id or "no network"))
+
+    --
+  elseif subcommand == "next" then
+    local direction = tonumber(options[2])
+    local connection = tonumber(options[3])
+    if not direction or not connection then
+      game.print("invalid options: " .. tostring(direction) .. " " .. tostring(connection))
+      game.print("usage: /oe-debug next <direction> <connection>")
+      return
+    end
+    ---@diagnostic disable-next-line: param-type-mismatch
+    local next_rail = RailMarcher.get_next_rail(rail, direction, connection)
+    if next_rail then
+      player.teleport(next_rail.position)
+    else
+      game.print("no rail found")
+    end
   end
 end)

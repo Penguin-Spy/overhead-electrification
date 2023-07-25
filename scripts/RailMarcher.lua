@@ -15,6 +15,16 @@ local BACK = defines.rail_direction.back
 local VERTICAL = defines.direction.north   -- front is up, back is down
 local HORIZONTAL = defines.direction.east  -- front is right, back is left
 
+
+-- diagonal rails
+-- 1 & 3 go  up  when getting the "front" "straight" rail
+local NORTHEAST = defines.direction.northeast
+local SOUTHEAST = defines.direction.southeast
+-- 5 & 7 go down when getting the "front" "straight" rail
+local SOUTHWEST = defines.direction.southwest
+local NORTHWEST = defines.direction.northwest
+
+
 -- joins arrays. modifies `a` in place
 ---@param a table
 ---@param b table
@@ -23,6 +33,32 @@ local function join(a, b)
     a[#a+1] = v
   end
 end
+
+
+-- gets the next rail in the given direction (`FRONT`/`BACK`) & connection direction (`STRAIGHT`/`LEFT`/`RIGHT`) <br>
+-- handles diagonal/curved rails (diagonal "front" is always upwards)
+---@param rail LuaEntity
+---@param direction defines.rail_direction
+---@param connection defines.rail_connection_direction
+---@return LuaEntity?
+local function get_next_rail(rail, direction, connection)
+  local entity_direction = rail.direction
+
+  -- straight/diagonal rails
+  if rail.type == "straight-rail" then
+    if entity_direction == SOUTHWEST or entity_direction == NORTHWEST then
+      -- inverts direction so diagonal rails are consistent
+      return rail.get_connected_rail{rail_direction = direction == FRONT and BACK or FRONT, rail_connection_direction = connection}
+    end
+    -- vertical/horizontal or normal diagonal directions
+    return rail.get_connected_rail{rail_direction = direction, rail_connection_direction = connection}
+
+    -- curved rails
+  else
+    return rail.get_connected_rail{rail_direction = direction, rail_connection_direction = connection}
+  end
+end
+RailMarcher.get_next_rail = get_next_rail
 
 
 -- returns the first pole found whose network_id matches the argument <br>
@@ -60,11 +96,70 @@ local function find_adjacent_poles(rail, color)
     rendering.draw_circle{color = color, width = 2, filled = false, target = rail.position, surface = rail.surface, radius = 2, only_in_alt_mode = true}
     return rail.surface.find_entities_filtered{position = rail.position, radius = 2, name = {"oe-catenary-pole", "oe-transformer"}}
   elseif rail.type == "curved-rail" then
+    rendering.draw_circle{color = color, width = 2, filled = false, target = rail.position, surface = rail.surface, radius = 1.5, only_in_alt_mode = true}
     game.print("curved rail not implemented")
     return {}
   end
   error("cannot find ajacent poles: '" .. rail.name .. "' is not a straight-rail or curved-rail")
 end
+
+
+-- returns a table of all poles that are next along the rail in the specified direction, as well as the next rail in the `STRAIGHT` direction if it exists
+---@param rail LuaEntity
+---@param direction defines.rail_direction
+---@param straight_color Color
+---@return LuaEntity[] poles
+---@return LuaEntity? next_straight_rail
+local function find_all_next_poles(rail, direction, straight_color)
+  local poles = {}
+
+  local next_straight_rail = get_next_rail(rail, direction, STRAIGHT)
+  if next_straight_rail then
+    join(poles, find_adjacent_poles(next_straight_rail, straight_color))  -- red
+  end
+
+  -- check curved rail directions
+  local left_rail = get_next_rail(rail, direction, LEFT)
+  if left_rail then
+    join(poles, find_adjacent_poles(left_rail, {1, 0, 1}))  -- purple
+    -- check the next rail after the curve too
+    -- TODO: this FRONT might need to change depending on what shape we're coming from
+    local direction_of_rail_into_curve = rail.direction
+    local direction = direction  -- intentionally redeclaring local direction
+    if direction == FRONT and (direction_of_rail_into_curve == HORIZONTAL or direction_of_rail_into_curve == VERTICAL) then
+      direction = BACK
+    elseif direction == BACK and not (direction_of_rail_into_curve == HORIZONTAL or direction_of_rail_into_curve == VERTICAL) then
+      direction = FRONT
+    end
+
+    local next_left_rail = get_next_rail(left_rail, direction, STRAIGHT)  -- exiting a curve is always "STRAIGHT"
+    if next_left_rail then
+      join(poles, find_adjacent_poles(next_left_rail, {0, 1, 1}))         -- cyan
+    end
+  end
+
+  local right_rail = get_next_rail(rail, direction, RIGHT)
+  game.print("rails: " .. tostring(left_rail) .. " " .. tostring(right_rail))
+  if right_rail then
+    join(poles, find_adjacent_poles(right_rail, {1, 0, 1}))  -- purple
+    -- check the next rail after the curve too
+    -- TODO: this FRONT might need to change depending on what shape we're coming from
+    local direction_of_rail_into_curve = rail.direction
+    if direction == FRONT and (direction_of_rail_into_curve == HORIZONTAL or direction_of_rail_into_curve == VERTICAL) then
+      direction = BACK
+    elseif direction == BACK and not (direction_of_rail_into_curve == HORIZONTAL or direction_of_rail_into_curve == VERTICAL) then
+      direction = FRONT
+    end
+
+    local next_right_rail = get_next_rail(right_rail, direction, STRAIGHT)  -- exiting a curve is always "STRAIGHT"
+    if next_right_rail then
+      join(poles, find_adjacent_poles(next_right_rail, {0, 1, 1}))          -- cyan
+    end
+  end
+
+  return poles, next_straight_rail
+end
+
 
 -- returns 2 tables containing all pole entities found close by and all poles found further away, or nil on error <br>
 -- searches in both directions <br>
@@ -78,50 +173,31 @@ function RailMarcher.find_all_poles(rail)
   -- check this rail
   nearby_poles = find_adjacent_poles(rail, {0, 1, 0})
 
-
-  -- check one rail in each direction
-  local front_rail = rail.get_connected_rail{rail_direction = FRONT, rail_connection_direction = STRAIGHT}
-  local back_rail = rail.get_connected_rail{rail_direction = BACK, rail_connection_direction = STRAIGHT}
-  if front_rail then join(nearby_poles, find_adjacent_poles(front_rail, {0, 1, 0})) end
-  if back_rail then join(nearby_poles, find_adjacent_poles(back_rail, {0, 1, 0})) end
+  local poles, front_rail, back_rail
+  poles, front_rail = find_all_next_poles(rail, FRONT, {0, 1, 0})
+  join(nearby_poles, poles)
+  poles, back_rail = find_all_next_poles(rail, BACK, {0, 1, 0})
+  join(nearby_poles, poles)
 
 
   -- check further away rails
-  -- {1, 0, 0}
   if front_rail then
-    local next_rail = front_rail
-    for i = 1, 7 do
-      ---@diagnostic disable-next-line: cast-local-type -- holy shit leave me alone i'm going to fucking nil check it
-      next_rail = next_rail.get_connected_rail{rail_direction = FRONT, rail_connection_direction = STRAIGHT}
-      if next_rail then  -- see look i'm fucking checking it right here
-        local poles = find_adjacent_poles(next_rail, {1, 0, 0})
-        if #poles > 0 then
-          join(far_poles, poles)
-          break  -- stop once we've found a pole
-        end
-      else
-        break
-      end
+    for _ = 1, 7 do
+      -- get poles from all rail directions, if no straight rail then break
+      poles, front_rail = find_all_next_poles(front_rail, FRONT, {1, 0, 0})
+      join(far_poles, poles)
+      if not front_rail then break end
     end
   end
 
   if back_rail then
-    local next_rail = back_rail
-    for i = 1, 7 do
-      ---@diagnostic disable-next-line: cast-local-type -- holy shit leave me alone i'm going to fucking nil check it
-      next_rail = next_rail.get_connected_rail{rail_direction = BACK, rail_connection_direction = STRAIGHT}
-      if next_rail then  -- see look i'm fucking checking it right here
-        local poles = find_adjacent_poles(next_rail, {1, 0, 0})
-        if #poles > 0 then
-          join(far_poles, poles)
-          break  -- stop once we've found a pole
-        end
-      else
-        break
-      end
+    for _ = 1, 7 do
+      -- get poles from all rail directions, if no straight rail then break
+      poles, back_rail = find_all_next_poles(back_rail, BACK, {1, 0, 0})
+      join(far_poles, poles)
+      if not back_rail then break end
     end
   end
-
 
 
   return nearby_poles, far_poles
