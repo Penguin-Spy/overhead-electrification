@@ -79,9 +79,9 @@ local function get_adjacent_rail(pole, direction)
   end
 
   rendering.draw_circle{color = {0, 0.7, 1, 1}, radius = 0.5, width = 2, filled = false, target = pos, surface = pole.surface, only_in_alt_mode = true}
-  game.print(pos)
 
-  return pole.surface.find_entities_filtered{position = pos, type = "straight-rail"}[1], direction
+  -- todo: handle ghosts
+  return pole.surface.find_entities_filtered{position = pos, type = {"straight-rail", "curved-rail"}}[1], direction
 end
 
 
@@ -110,11 +110,18 @@ local function remove_pole_graphics(pole)
   end
 end
 
+-- finds the graphics entity for the pole that's used for graphics
+---@param pole LuaEntity
+---@return LuaEntity?
+local function get_pole_graphics(pole)
+  return pole.surface.find_entity(pole.name .. "-graphics", pole.position)
+end
+
 -- finds the graphics entity for the pole that's used for graphics, or creates it if it's missing
 ---@param pole LuaEntity
 ---@return LuaEntity
-local function get_pole_graphics(pole)
-  local graphics_entity = pole.surface.find_entity(pole.name .. "-graphics", pole.position)
+local function ensure_pole_graphics(pole)
+  local graphics_entity = get_pole_graphics(pole)
   -- if we don't have a graphics_entity, make it facing the first rail clockwise (or north if no rails exist)
   if not graphics_entity then
     local _, direction = get_adjacent_rail(pole)
@@ -131,6 +138,7 @@ end
 ---@return defines.direction
 local function get_direction(pole)
   local graphics_entity = get_pole_graphics(pole)
+  if not graphics_entity then return defines.direction.north end
   -- 8-way directions are done with variations, 4 way is done with direction.
   return is_big(pole) and ((graphics_entity.direction) % 8)
       or (graphics_entity.graphics_variation - 1)
@@ -163,7 +171,7 @@ local function connect_poles(this_pole, other_pole)
   if we_have_network and they_have_network and networks_are_different then
     return false  -- don't connect
   else            -- otherwise, they're the same network or we should connect to theirs
-    game.print("actually connecting to pole")
+    game.print("actually connecting to pole " .. other_pole.unit_number)
     -- teleport to the other pole to connect, then teleport back
     local pos = this_pole.position
     this_pole.teleport(other_pole.position)
@@ -212,6 +220,7 @@ function CatenaryManager.on_pole_placed(this_pole)
   game.print("placed pole id: " .. this_pole.unit_number)
 
   -- figure out what direction we're facing
+  ensure_pole_graphics(this_pole)
   local direction = get_direction(this_pole)
 
   -- get the adjacent rail for searching for neighbors
@@ -221,15 +230,13 @@ function CatenaryManager.on_pole_placed(this_pole)
     remove_pole_graphics(this_pole)
     return "oe-invalid-pole-position"
   end
-  local nearby_poles, far_poles = RailMarcher.find_all_poles(rail)
 
-  for i, other_pole in pairs(nearby_poles) do
-    game.print("found nearby #" .. i .. ": " .. other_pole.name)
-    highlight(other_pole, i, {0, 1, 0})
-    if other_pole ~= this_pole then
-      remove_pole_graphics(this_pole)
-      return "oe-pole-too-close"
-    end
+
+  local poles = RailMarcher.find_all_poles(rail, this_pole)
+
+  if not poles then
+    remove_pole_graphics(this_pole)
+    return "oe-pole-too-close"
   end
 
   -- placement is valid, if this is a transformer, create catenary network
@@ -245,10 +252,9 @@ function CatenaryManager.on_pole_placed(this_pole)
 
   -- finally, connect to other poles
 
-  for i, other_pole in pairs(far_poles) do
+  for i, other_pole in pairs(poles) do
     game.print("found far #" .. i .. ": " .. other_pole.name)
     highlight(other_pole, i, {1, 0, 0})
-    game.print("connecting poles")
     connect_poles(this_pole, other_pole)
   end
 
@@ -302,7 +308,7 @@ end
 -- disconnects catenary poles that are connected above this rail
 ---@param rail LuaEntity
 function CatenaryManager.on_rail_removed(rail)
-
+  global.rail_number_lookup[rail.unit_number] = nil
 end
 
 

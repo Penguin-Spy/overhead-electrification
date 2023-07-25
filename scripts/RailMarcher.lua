@@ -24,6 +24,7 @@ local SOUTHEAST = defines.direction.southeast
 local SOUTHWEST = defines.direction.southwest
 local NORTHWEST = defines.direction.northwest
 
+local pole_names = {"oe-catenary-pole", "oe-transformer"}
 
 -- joins arrays. modifies `a` in place
 ---@param a table
@@ -58,6 +59,7 @@ local function get_next_rail(rail, direction, connection)
     return rail.get_connected_rail{rail_direction = direction, rail_connection_direction = connection}
   end
 end
+-- debug
 RailMarcher.get_next_rail = get_next_rail
 
 
@@ -87,21 +89,96 @@ function RailMarcher.get_network_in_direction(rail, rail_dir, network_id)
   end
 end
 
-
--- finds poles next to a single rail
+-- finds poles next to a single rail <br>
+-- returns two tables if `rail` is a curved-rail, `other_poles` are the poles on the diagonal end
 ---@param rail LuaEntity
----@return LuaEntity[]
+---@return LuaEntity[]     poles
+---@return LuaEntity[]|nil other_poles
 local function find_adjacent_poles(rail, color)
   if rail.type == "straight-rail" then
-    rendering.draw_circle{color = color, width = 2, filled = false, target = rail.position, surface = rail.surface, radius = 2, only_in_alt_mode = true}
-    return rail.surface.find_entities_filtered{position = rail.position, radius = 2, name = {"oe-catenary-pole", "oe-transformer"}}
+    local position = rail.position
+    local direction = rail.direction
+
+    -- adjust search radius to actual center of diagonal rails
+    if direction == SOUTHWEST then
+      position.x = position.x - 0.5
+      position.y = position.y + 0.5
+    elseif direction == NORTHWEST then
+      position.x = position.x - 0.5
+      position.y = position.y - 0.5
+    elseif direction == SOUTHEAST then
+      position.x = position.x + 0.5
+      position.y = position.y + 0.5
+    elseif direction == NORTHEAST then
+      position.x = position.x + 0.5
+      position.y = position.y - 0.5
+    end
+
+    rendering.draw_circle{color = color, width = 2, filled = false, target = position, surface = rail.surface, radius = 2, only_in_alt_mode = true}
+    return rail.surface.find_entities_filtered{position = position, radius = 2, name = pole_names}
+
+    --
   elseif rail.type == "curved-rail" then
-    rendering.draw_circle{color = color, width = 2, filled = false, target = rail.position, surface = rail.surface, radius = 1.5, only_in_alt_mode = true}
-    game.print("curved rail not implemented")
-    return {}
+    local straight_position, diagonal_position = rail.position, rail.position
+    local direction = rail.direction
+
+    -- yup.
+    if direction == defines.direction.north then
+      straight_position.x = straight_position.x + 1
+      straight_position.y = straight_position.y + 3.5
+      diagonal_position.x = diagonal_position.x - 1.5
+      diagonal_position.y = diagonal_position.y - 2.5
+    elseif direction == defines.direction.northeast then
+      straight_position.x = straight_position.x - 1
+      straight_position.y = straight_position.y + 3.5
+      diagonal_position.x = diagonal_position.x + 1.5
+      diagonal_position.y = diagonal_position.y - 2.5
+    elseif direction == defines.direction.east then
+      straight_position.x = straight_position.x - 3.5
+      straight_position.y = straight_position.y + 1
+      diagonal_position.x = diagonal_position.x + 2.5
+      diagonal_position.y = diagonal_position.y - 1.5
+    elseif direction == defines.direction.southeast then
+      straight_position.x = straight_position.x - 3.5
+      straight_position.y = straight_position.y - 1
+      diagonal_position.x = diagonal_position.x + 2.5
+      diagonal_position.y = diagonal_position.y + 1.5
+    elseif direction == defines.direction.south then
+      straight_position.x = straight_position.x - 1
+      straight_position.y = straight_position.y - 3.5
+      diagonal_position.x = diagonal_position.x + 1.5
+      diagonal_position.y = diagonal_position.y + 2.5
+    elseif direction == defines.direction.southwest then
+      straight_position.x = straight_position.x + 1
+      straight_position.y = straight_position.y - 3.5
+      diagonal_position.x = diagonal_position.x - 1.5
+      diagonal_position.y = diagonal_position.y + 2.5
+    elseif direction == defines.direction.west then
+      straight_position.x = straight_position.x + 3.5
+      straight_position.y = straight_position.y - 1
+      diagonal_position.x = diagonal_position.x - 2.5
+      diagonal_position.y = diagonal_position.y + 1.5
+    elseif direction == defines.direction.northwest then
+      straight_position.x = straight_position.x + 3.5
+      straight_position.y = straight_position.y + 1
+      diagonal_position.x = diagonal_position.x - 2.5
+      diagonal_position.y = diagonal_position.y - 1.5
+    else
+      error("rail direction invalid " .. direction)
+    end
+
+    rendering.draw_circle{color = color, width = 2, filled = false, target = straight_position, radius = 1.5, surface = rail.surface, only_in_alt_mode = true}
+    local straight_poles = rail.surface.find_entities_filtered{position = straight_position, radius = 1.5, name = pole_names}
+
+    rendering.draw_circle{color = color, width = 2, filled = false, target = diagonal_position, radius = 1.425, surface = rail.surface, only_in_alt_mode = true}
+    local diagonal_poles = rail.surface.find_entities_filtered{position = diagonal_position, radius = 1.425, name = pole_names}
+
+    return straight_poles, diagonal_poles
   end
   error("cannot find ajacent poles: '" .. rail.name .. "' is not a straight-rail or curved-rail")
 end
+-- debug
+RailMarcher.find_adjacent_poles = find_adjacent_poles
 
 
 -- returns a table of all poles that are next along the rail in the specified direction, as well as the next rail in the `STRAIGHT` direction if it exists
@@ -161,15 +238,76 @@ local function find_all_next_poles(rail, direction, straight_color)
 end
 
 
--- returns 2 tables containing all pole entities found close by and all poles found further away, or nil on error <br>
+-- returns a table containing all pole entities that could be connected to, or `false` if there's a pole too close to this rail <br>
 -- searches in both directions <br>
 -- used when finding poles for a pole to connect to
----@param rail LuaEntity
----@return LuaEntity[] nearby_poles, LuaEntity[] far_poles
-function RailMarcher.find_all_poles(rail)
-  local nearby_poles, far_poles = nil, {}
-  local surface = rail.surface
+---@param rail LuaEntity the rail to search from
+---@param pole LuaEntity the pole being placed, ignored in the too-close checks
+---@return LuaEntity[]|false nearby_poles
+function RailMarcher.find_all_poles(rail, pole)
+  local poles, other_poles
 
+  if rail.type == "straight-rail" then
+    --if straight rail:
+    -- find all poles next to this rail & the two adjacent rails
+    -- if any exist, cancel placement
+    -- find all poles on curved rails next to this rail and on curved rails next to the two adjacent rails
+    --  include poles one the rail one past the curved rail (straight/diagonal/curved, doesn't matter they're all a call to find_adjacent_poles)
+    -- find all poles on straight rails past the two ajacent rails
+
+
+    -- check this rail
+    poles = find_adjacent_poles(rail, {0, 1, 0})
+
+    util.remove_from_list(poles, pole)
+    if #poles > 0 then  -- there can only be one on this rail
+      for i, other_pole in pairs(poles) do highlight(other_pole, i, {0, 1, 0.5}) end
+      return false
+    end
+
+    -- rail.type == curved-rail
+  else
+    -- if curved rail:
+    -- (find all poles next to this end of the curved rail) & the rail adjacent to the end this pole is on
+    -- (if any exist, cancel placement)
+    -- find all poles on the other end of this curved rail, one rail past the end
+    -- find all poles on straight rails on this end of the curved rail
+
+    poles, other_poles = find_adjacent_poles(rail, {0, 1, 0})
+
+    -- figure out what end this pole is on (if it's in the poles list it gets removed)
+    local straight_end = util.remove_from_list(poles, pole)
+
+    if straight_end then
+      if #poles > 0 then
+        for i, other_pole in pairs(poles) do highlight(other_pole, i, {0, 1, 0.25}) end
+        return false
+      end
+      -- todo: find next rail in BACK rail_direction and check it for poles
+
+      -- is diagonal end
+    else
+      util.remove_from_list(other_poles, pole)
+      if #other_poles > 0 then
+        for i, other_pole in pairs(poles) do highlight(other_pole, i, {0, 1, 0.75}) end
+        return false
+      end
+    end
+    -- todo: find next rail in FRONT rail_direction and check it for poles
+  end
+
+
+
+
+  if other_poles then
+    join(poles, other_poles)
+  end
+  return poles
+
+
+
+
+  --[[
   -- check this rail
   nearby_poles = find_adjacent_poles(rail, {0, 1, 0})
 
@@ -202,7 +340,10 @@ function RailMarcher.find_all_poles(rail)
 
   return nearby_poles, far_poles
 
+  ]]
+
   --[[
+  local surface = rail.surface
 
   -- first, check next to this rail
   if rail.type == "straight-rail" then

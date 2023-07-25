@@ -19,6 +19,7 @@ Translations are also welcome, although the mod is in alpha so the stuff you nee
   - idk maybe Bobs/Angels if somebody asks nicely
 - compat with train mods:
   - SE Space Trains (make them electric instead of battery powered)
+  - Renai Transportation (make sure there's no crashes or whatever when using train ramps)
   - other popular transit/train related mods?
 - other compat:
   - Picker Dollies (make transformer & catenary poles not movable (it doesn't work anyways but gives a weird error))

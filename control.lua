@@ -221,7 +221,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
   if command.parameter then
     options = util.split(command.parameter, " ")
   else
-    game.print("commands: all, find, next, update_loco, update_train, show_rails, clear, initalize")
+    player.print("commands: all, find_poles, find_network, next_rail, update_loco, update_train, show_rails, clear, initalize")
     return
   end
 
@@ -235,12 +235,12 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
   end
 
   if subcommand == "update_loco" then
-    update_locomotive(global.locomotives[game.player.selected.unit_number])
+    update_locomotive(global.locomotives[player.selected.unit_number])
     return
   end
 
   if subcommand == "update_train" then
-    LocomotiveManager.on_train_changed_state(game.player.selected.train)
+    LocomotiveManager.on_train_changed_state(player.selected.train)
     return
   end
 
@@ -258,8 +258,8 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
     return
   end
 
-  if subcommand ~= "all" and subcommand ~= "find" and subcommand ~= "next" then
-    game.print("unknown command")
+  if subcommand ~= "find_poles" and subcommand ~= "all" and subcommand ~= "find_network" and subcommand ~= "next_rail" then
+    player.print("unknown command")
     return
   end
 
@@ -269,31 +269,47 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
     return
   end
 
-  if subcommand == "all" then
-    local nearby_poles, far_poles = RailMarcher.find_all_poles(rail)
+  if subcommand == "find_poles" then
+    local poles, other_poles = RailMarcher.find_adjacent_poles(rail, {1, 1, 0, 0.5})
 
-    for i, pole in pairs(nearby_poles) do
-      game.print("found #" .. i .. ": " .. pole.name)
+    for i, pole in pairs(poles) do
+      player.print("found #" .. i .. ": " .. pole.name)
       highlight(pole, i, {0, 1, 0})
     end
-    for i, pole in pairs(far_poles) do
-      game.print("found #" .. i .. ": " .. pole.name)
-      highlight(pole, i, {1, 0, 0})
+
+    if other_poles then
+      for i, pole in pairs(other_poles) do
+        player.print("found other #" .. i .. ": " .. pole.name)
+        highlight(pole, i, {0, 0, 1})
+      end
     end
 
     --
-  elseif subcommand == "find" then
-    ---@diagnostic disable-next-line: param-type-mismatch
-    local network_id = RailMarcher.get_network_in_direction(rail, tonumber(options[2]))
-    game.print("found: " .. (network_id or "no network"))
+  elseif subcommand == "all" then
+    local poles = RailMarcher.find_all_poles(rail, player.surface.find_entities_filtered{name = "oe-catenary-pole", limit = 1, position = player.position, radius = 1}[0])
+
+    if poles then
+      for i, pole in pairs(poles) do
+        player.print("found #" .. i .. ": " .. pole.name)
+        highlight(pole, i, {0, 1, 0})
+      end
+    else
+      player.print("other pole too close")
+    end
 
     --
-  elseif subcommand == "next" then
+  elseif subcommand == "find_network" then
+    ---@diagnostic disable-next-line: param-type-mismatch
+    local network_id = RailMarcher.get_network_in_direction(rail, tonumber(options[2]))
+    player.print("found: " .. (network_id or "no network"))
+
+    --
+  elseif subcommand == "next_rail" then
     local direction = tonumber(options[2])
     local connection = tonumber(options[3])
     if not direction or not connection then
-      game.print("invalid options: " .. tostring(direction) .. " " .. tostring(connection))
-      game.print("usage: /oe-debug next <direction> <connection>")
+      player.print("invalid options: " .. tostring(direction) .. " " .. tostring(connection))
+      player.print("usage: /oe-debug next_rail <direction> <connection>")
       return
     end
     ---@diagnostic disable-next-line: param-type-mismatch
@@ -301,7 +317,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
     if next_rail then
       player.teleport(next_rail.position)
     else
-      game.print("no rail found")
+      player.print("no rail found")
     end
   end
 end)
