@@ -257,6 +257,11 @@ local function find_poles_on_curved_rails(rail, direction)
       join(far_poles, b)  -- technically kinda diagonal rail, join `back_poles` first to preserve distance order
       join(far_poles, f)
     end
+    local next_left_left_rail = get_next_rail(left_rail, direction, LEFT)  -- left turn into diagonal after left turn out of diagonal
+    if next_left_left_rail then
+      -- only save the 'front' (orthogonal) poles, the back poles are too far around the curve
+      join(far_poles, (find_adjacent_poles(next_left_left_rail, {1, 1, 1})))
+    end
   end
   if right_rail then
     local next_right_rail = get_next_rail(right_rail, direction, STRAIGHT)  -- straight/diagonal
@@ -270,6 +275,11 @@ local function find_poles_on_curved_rails(rail, direction)
       local f, b = find_adjacent_poles(next_right_left_rail, {1, 1, 1})
       join(far_poles, b)  -- technically kinda diagonal rail, join `back_poles` first to preserve distance order
       join(far_poles, f)
+    end
+    local next_right_right_rail = get_next_rail(right_rail, direction, RIGHT)  -- right turn into diagonal after right turn out of diagonal
+    if next_right_right_rail then
+      -- only save the 'front' (orthogonal) poles, the back poles are too far around the curve
+      join(far_poles, (find_adjacent_poles(next_right_right_rail, {1, 1, 1})))
     end
   end
 
@@ -290,13 +300,24 @@ local function find_poles_on_straight_rails(next_rail, direction, nearby_poles)
       join(nearby_poles, find_adjacent_poles(straight_next_rail, {0, 1, 0}))  -- green
       next_rail = straight_next_rail
     else
+      local is_rail_orthogonal = is_orthogonal(next_rail.direction)
       local left_next_rail = get_next_rail(next_rail, direction, LEFT)
       if (left_next_rail) then
-        join(nearby_poles, (find_adjacent_poles(left_next_rail, {1, 0.5, 1})))  -- magenta
+        local f, b = find_adjacent_poles(left_next_rail, {1, 0.5, 1})  -- magenta
+        if is_rail_orthogonal then
+          join(nearby_poles, f)
+        else
+          join(nearby_poles, b)
+        end
       end
       local right_next_rail = get_next_rail(next_rail, direction, RIGHT)
       if (right_next_rail) then
-        join(nearby_poles, (find_adjacent_poles(right_next_rail, {1, 0.5, 1})))  -- magenta
+        local f, b = find_adjacent_poles(right_next_rail, {1, 0.5, 1})  -- magenta
+        if is_rail_orthogonal then
+          join(nearby_poles, f)
+        else
+          join(nearby_poles, b)
+        end
       end
       break
     end
@@ -440,10 +461,8 @@ function RailMarcher.find_all_poles(rail, initial_pole)
       if front_rail then
         join(nearby_poles, (find_adjacent_poles(front_rail, {1, 1, 0})))
       end
-      -- find poles along the curved rails in the orthogonal direction
-      local f, b = find_poles_on_curved_rails(rail, FRONT)
-      join(nearby_poles, f)
-      join(nearby_poles, b)
+      -- find close poles on the curved rails in the orthogonal direction
+      join(nearby_poles, (find_poles_on_curved_rails(rail, FRONT)))
     end
 
     -- if there's another pole other than this one, it's too close
