@@ -138,7 +138,7 @@ function LocomotiveManager.on_train_changed_state(train)
     back_state = POWER_STATE_STOPPED
   end
 
-  game.print("riding state: " .. acceleration .. "  front_state: " .. front_state .. "  back_state: " .. back_state)
+  --game.print("riding state: " .. acceleration .. "  front_state: " .. front_state .. "  back_state: " .. back_state)
 
   for _, locomotive in pairs(train.locomotives.front_movers) do
     set_locomotive_power_state(locomotive, front_state)
@@ -154,12 +154,14 @@ end
 function LocomotiveManager.update_locomotive(data)
   local locomotive = data.locomotive
   local interface = data.interface
-  --local rails = locomotive.train.get_rails()
-  -- TODO: this needs to search if there's any power anywhere in between the front & back of train + a few rails out on each end!
-  -- adjust function to search from rail A to rail B, returning network_id if there's exactly 1
-  -- or something basically just don't do from whatever the first rail in the list is
-  local front_network = RailMarcher.get_network_in_direction(locomotive.train.front_rail, FRONT)
-  local back_network = RailMarcher.get_network_in_direction(locomotive.train.back_rail, BACK)
+
+  -- get the closest rail of all the rails under this train
+  local rail_under_locomotive = locomotive.surface.get_closest(locomotive.position, locomotive.train.get_rails())
+  if not rail_under_locomotive then
+    error("no rail under locomotive?")
+  end
+  local front_network = RailMarcher.get_network_in_direction(rail_under_locomotive, FRONT)
+  local back_network = RailMarcher.get_network_in_direction(rail_under_locomotive, BACK)
   local cached_network = data.network_id
 
   --game.print("front: " .. (front_network or "nil") .. " back: " .. (back_network or "nil") .. " cached: " .. (cached_network or "nil"))

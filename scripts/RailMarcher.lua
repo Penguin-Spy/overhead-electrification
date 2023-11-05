@@ -102,7 +102,7 @@ end
 ---@param rail LuaEntity
 ---@param color Color
 ---@return LuaEntity[] poles
----@return LuaEntity[]|nil back_poles
+---@return LuaEntity[] back_poles
 local function find_adjacent_poles(rail, color)
   if rail.type == "straight-rail" then
     local position = rail.position
@@ -126,6 +126,8 @@ local function find_adjacent_poles(rail, color)
     local radius = is_orthogonal(direction) and 2 or 1.5
 
     rendering.draw_circle{color = color, width = 2, filled = false, target = position, surface = rail.surface, radius = radius, only_in_alt_mode = true}
+    -- this is easier then trying to convince sumneko.lua that back_poles won't be nil for curved rails
+    ---@diagnostic disable-next-line: return-type-mismatch
     return rail.surface.find_entities_filtered{position = position, radius = radius, name = pole_names}, nil
 
     --
@@ -265,7 +267,6 @@ local function find_poles_on_curved_rails(rail, direction)
   if left_rail then
     local f, b = find_adjacent_poles(left_rail, {1, 1, 0})
     join(front_poles, f)
-    ---@diagnostic disable-next-line: param-type-mismatch -- will not be nil for curved-rail
     join(back_poles, b)
   end
 
@@ -273,7 +274,6 @@ local function find_poles_on_curved_rails(rail, direction)
   if right_rail then
     local f, b = find_adjacent_poles(right_rail, {1, 1, 0})
     join(front_poles, f)
-    ---@diagnostic disable-next-line: param-type-mismatch -- will not be nil for curved-rail
     join(back_poles, b)
   end
 
@@ -306,7 +306,6 @@ local function find_poles_on_curved_rails(rail, direction)
     local next_left_right_rail = get_next_rail(left_rail, direction, RIGHT)  -- left turn out of diagonal after right turn into diagonal
     if next_left_right_rail then
       local f, b = find_adjacent_poles(next_left_right_rail, {1, 1, 1})
-      ---@diagnostic disable-next-line: param-type-mismatch -- will not be nil for curved-rail
       join(far_poles, b)  -- technically kinda diagonal rail, join `back_poles` first to preserve distance order
       join(far_poles, f)
     end
@@ -321,7 +320,6 @@ local function find_poles_on_curved_rails(rail, direction)
     local next_right_left_rail = get_next_rail(right_rail, direction, LEFT)  -- right turn out of diagonal after left turn into diagonal
     if next_right_left_rail then
       local f, b = find_adjacent_poles(next_right_left_rail, {1, 1, 1})
-      ---@diagnostic disable-next-line: param-type-mismatch -- will not be nil for curved-rail
       join(far_poles, b)  -- technically kinda diagonal rail, join `back_poles` first to preserve distance order
       join(far_poles, f)
     end
@@ -335,105 +333,131 @@ end
 -- searches in both directions <br>
 -- used when finding poles for a pole to connect to
 ---@param rail LuaEntity the rail to search from
----@param pole LuaEntity the pole being placed, ignored in the too-close checks
+---@param initial_pole LuaEntity the pole being placed, ignored in the too-close checks
 ---@return LuaEntity[]|false nearby_poles
-function RailMarcher.find_all_poles(rail, pole)
-  local poles, back_poles
-
+function RailMarcher.find_all_poles(rail, initial_pole)
   if rail.type == "straight-rail" then
+    local nearby_poles = {}
     --if straight rail:
-    -- (find all poles next to this rail & the two adjacent rails)
-    -- (if any exist, cancel placement)
-    -- (find all poles on curved rails next to this rail) and on curved rails next to the two adjacent rails
-    --  include poles one the rail one past the curved rail (straight/diagonal/curved, doesn't matter they're all a call to find_adjacent_poles)
-    -- find all poles on straight rails past the two ajacent rails
+    -- [find all poles next to this rail & the two adjacent rails]
+    -- [if any exist, cancel placement]
+    -- [find all poles on curved rails next to this rail] NOT: ~~and on curved rails next to the two adjacent rails~~
+    -- [include poles one the rail one past the curved rail] (straight/diagonal/curved, doesn't matter they're all a call to find_adjacent_poles)
+    -- [find all poles on straight rails past the two ajacent rails]
 
+    -- check this rail for poles
+    local too_close_poles = find_adjacent_poles(rail, {1, 0, 0})
 
-    -- check this rail
-    poles = find_adjacent_poles(rail, {1, 0, 0})
-
-    -- find adjacent rails and check for poles
+    -- find adjacent straight rails and check for poles
     local front_rail = get_next_rail(rail, FRONT, STRAIGHT)
     if front_rail then
-      join(poles, find_adjacent_poles(front_rail, {1, 0, 0}))
+      join(too_close_poles, find_adjacent_poles(front_rail, {1, 0, 0}))
     end
     local back_rail = get_next_rail(rail, BACK, STRAIGHT)
     if back_rail then
-      join(poles, find_adjacent_poles(back_rail, {1, 0, 0}))
+      join(too_close_poles, find_adjacent_poles(back_rail, {1, 0, 0}))
     end
 
-    -- find poles on close end of adjacent curved rails (only poles on close end block placement)
+    -- find poles on adjacent curved rails (only poles on close end block placement, poles on far end count for attaching)
     local close_poles, far_poles = find_poles_on_curved_rails(rail, FRONT)
-    for i, pole in pairs(close_poles) do
-      highlight(pole, i, {1, 1, 0})  -- yellow
-    end
-    for i, pole in pairs(far_poles) do
-      highlight(pole, i, {1, 0, 1})  -- magenta
-    end
-    join(poles, close_poles)         -- count these close poles as being too close
-    local close_poles, far_poles = find_poles_on_curved_rails(rail, BACK)
-    for i, pole in pairs(close_poles) do
-      highlight(pole, i, {1, 1, 0})  -- yellow
-    end
-    for i, pole in pairs(far_poles) do
-      highlight(pole, i, {1, 0, 1})  -- magenta
-    end
-    join(poles, close_poles)
+    join(too_close_poles, close_poles)  -- count these close poles as being too close
+    join(nearby_poles, far_poles)
+    close_poles, far_poles = find_poles_on_curved_rails(rail, BACK)
+    join(too_close_poles, close_poles)
+    join(nearby_poles, far_poles)
 
 
     -- if there's another pole other than this one, it's too close
-    util.remove_from_list(poles, pole)
-    if #poles > 0 then  -- there can only be one on this rail
-      for i, other_pole in pairs(poles) do highlight(other_pole, i, {0, 1, 0.5}) end
+    util.remove_from_list(too_close_poles, initial_pole)
+    if #too_close_poles > 0 then
+      for i, other_pole in pairs(too_close_poles) do highlight(other_pole, i, {0, 1, 0.5}) end  -- "SpringGreen"
       return false
     end
 
-    --   use straight/diagonal to know which end we're on
-    -- poles on far end count for attaching
 
-    -- todo: search along straight rails in both directions
-    --   also search for all poles on curved rails that are one rail away
+    -- search along straight rails in both directions
+    if front_rail then
+      for _ = 1, 7 do
+        front_rail = get_next_rail(front_rail, FRONT, STRAIGHT)
+        if front_rail then
+          join(nearby_poles, find_adjacent_poles(front_rail, {0, 1, 0}))  -- green
+        else
+          break
+        end
+      end
+    end
+    if back_rail then
+      for _ = 1, 7 do
+        back_rail = get_next_rail(back_rail, BACK, STRAIGHT)
+        if back_rail then
+          join(nearby_poles, find_adjacent_poles(back_rail, {0, 1, 0}))  -- green
+        else
+          break
+        end
+      end
+    end
+
+
+    return nearby_poles
+
 
     -- rail.type == curved-rail
   else
     -- if curved rail:
-    -- (find all poles next to this end of the curved rail) & the rail adjacent to the end this pole is on
-    -- (if any exist, cancel placement)
+    -- [find all poles next to this end of the curved rail] & [the rail adjacent to the end this pole is on]
+    -- [if any exist, cancel placement]
     -- find all poles on the other end of this curved rail, one rail past the end
     -- find all poles on straight rails on this end of the curved rail
 
-    poles, back_poles = find_adjacent_poles(rail, {0, 1, 0})
+    local front_poles, back_poles = find_adjacent_poles(rail, {0, 1, 0})
+    local too_close_poles, nearby_poles
 
     -- figure out what end this pole is on (if it's in the poles list it gets removed)
-    local straight_end = util.remove_from_list(poles, pole)
+    local on_front_end = util.remove_from_list(front_poles, initial_pole)
 
-    if straight_end then
-      if #poles > 0 then
-        for i, other_pole in pairs(poles) do highlight(other_pole, i, {0, 1, 0.25}) end
-        return false
+    if on_front_end then  -- the front of a curved rail is the orthogonal end
+      too_close_poles = front_poles
+      nearby_poles = back_poles
+
+      -- get next rail(s) in BACK direction for nearby_poles
+      -- straight, whatever the curved direction is
+
+      -- may be able to generalize this to a generic "close direction, far direction" to reduce code duplication
+      -- close direction: get the close/far poles for the curves, join the close poles for the straight
+      -- far direction: get both the pole lists for the curves, join the poles for the straight
+
+      -- use FRONT direction for next rail with too-close poles
+      too_close_poles, nearby_poles = find_poles_on_curved_rails(rail, FRONT)
+      local front_rail = get_next_rail(rail, FRONT, STRAIGHT)
+      if front_rail then
+        join(too_close_poles, find_adjacent_poles(front_rail, {1, 0, 0}))
       end
-      -- todo: find next rail in BACK rail_direction and check it for poles
+
 
       --
-    else  -- is diagonal end
-      util.remove_from_list(back_poles, pole)
-      if #back_poles > 0 then
-        for i, other_pole in pairs(poles) do highlight(other_pole, i, {0, 1, 0.75}) end
-        return false
-      end
-      -- todo: find next rail in FRONT rail_direction and check it for poles
+    else  -- is back (diagonal) end
+      -- find poles on the opposite end
+      too_close_poles, nearby_poles = find_poles_on_curved_rails(rail, FRONT)
+      util.remove_from_list(back_poles, initial_pole)  -- remove the initial_pole from the back_poles list instead
+      -- and join poles that were on this rail
+      join(too_close_poles, back_poles)
+      join(nearby_poles, front_poles)
+
+      -- find too-close poles on the rail in the BACK direction
     end
 
+    -- if there's another pole other than this one, it's too close
+    if #too_close_poles > 0 then
+      for i, other_pole in pairs(too_close_poles) do highlight(other_pole, i, {0, 1, 0.5}) end  -- "SpringGreen"
+      return false
+    end
+
+
     -- todo: search along straight rails connected to whichever end of the curved rail this pole is on
+
+
+    return nearby_poles
   end
-
-
-
-
-  if back_poles then
-    join(poles, back_poles)
-  end
-  return poles
 
 
 

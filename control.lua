@@ -155,6 +155,7 @@ script.on_nth_tick(2, on_tick)
 
 
 -- the train.riding_state isn't accurate when this event fires if the train changed to on_the_path :(
+---@param event EventData.on_train_changed_state
 script.on_event(defines.events.on_train_changed_state, function(event)
   table.insert(global.queued_train_state_changes.next_next_tick, event.train)
 end)
