@@ -160,32 +160,29 @@ function LocomotiveManager.update_locomotive(data)
   if not rail_under_locomotive then
     error("no rail under locomotive?")
   end
-  local front_network = RailMarcher.get_network_in_direction(rail_under_locomotive, FRONT)
-  local back_network = RailMarcher.get_network_in_direction(rail_under_locomotive, BACK)
+  local current_network = global.rail_number_lookup[rail_under_locomotive.unit_number]
   local cached_network = data.network_id
 
-  --game.print("front: " .. (front_network or "nil") .. " back: " .. (back_network or "nil") .. " cached: " .. (cached_network or "nil"))
-
   -- check network
-  if front_network and front_network == back_network then
+  if current_network then
     -- if we were in a different network
-    if cached_network and cached_network ~= front_network then
-      game.print("joining new network " .. front_network)
-      local network = global.catenary_networks[front_network]
+    if cached_network and cached_network ~= current_network then
+      game.print("joining new network " .. current_network)
+      local network = global.catenary_networks[current_network]
       -- join this one instead
       ---@diagnostic disable-next-line: need-check-nil if we have a cached network this will always be not nil
-      interface.teleport(network.transformer.position)
-      data.network_id = front_network
+      interface.teleport(network.transformers[1].position)
+      data.network_id = current_network
 
       -- if we don't have a network we join the new one
     elseif not cached_network then
       game.print("joining network")
-      local network = global.catenary_networks[front_network]
-      data.network_id = front_network
+      local network = global.catenary_networks[current_network]
+      data.network_id = current_network
 
       interface = locomotive.surface.create_entity{
         name = "oe-locomotive-interface",
-        position = network.transformer.position,
+        position = network.transformers[1].position,
         force = locomotive.force
       }
       if not (interface and interface.valid) then error("creating locomotive interface failed unexpectedly") end

@@ -133,6 +133,7 @@ local function on_tick(event)
     update_locomotive(locomotive_data)
   end
 
+  -- have to queue the poles in case the network is split when a pole is removed
   for i, pole in pairs(global.queued_network_changes) do
     if pole.valid then
       game.print("queued recursive update of " .. pole.unit_number)
@@ -155,8 +156,7 @@ script.on_nth_tick(2, on_tick)
 
 
 -- the train.riding_state isn't accurate when this event fires if the train changed to on_the_path :(
----@param event EventData.on_train_changed_state
-script.on_event(defines.events.on_train_changed_state, function(event)
+script.on_event(defines.events.on_train_changed_state, function(event  --[[@as EventData.on_train_changed_state]])
   table.insert(global.queued_train_state_changes.next_next_tick, event.train)
 end)
 
@@ -169,6 +169,7 @@ local function initalize()
   global.locomotives = global.locomotives or {}
   ---@type catenary_network_data[] A mapping of network_id to catenary network data
   global.catenary_networks = global.catenary_networks or {}
+  global.next_catenary_network_id = 1
 
   -- map of electric_network_id to catenary network_id <br>
   -- used for determining what network a pole is in
@@ -222,7 +223,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
   if command.parameter then
     options = util.split(command.parameter, " ")
   else
-    player.print("commands: all, find_poles, find_network, next_rail, update_loco, update_train, show_rails, clear, initalize")
+    player.print("commands: all, find_poles, next_rail, update_loco, update_train, show_rails, clear, initalize")
     return
   end
 
@@ -259,7 +260,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
     return
   end
 
-  if subcommand ~= "find_poles" and subcommand ~= "all" and subcommand ~= "find_network" and subcommand ~= "next_rail" then
+  if subcommand ~= "find_poles" and subcommand ~= "all" and subcommand ~= "next_rail" then
     player.print("unknown command")
     return
   end
@@ -297,12 +298,6 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
     else
       player.print("other pole too close")
     end
-
-    --
-  elseif subcommand == "find_network" then
-    ---@diagnostic disable-next-line: param-type-mismatch
-    local network_id = RailMarcher.get_network_in_direction(rail, tonumber(options[2]))
-    player.print("found: " .. (network_id or "no network"))
 
     --
   elseif subcommand == "next_rail" then

@@ -71,32 +71,6 @@ end
 RailMarcher.get_next_rail = get_next_rail
 
 
--- returns the first pole found whose network_id matches the argument <br>
--- used when updating electric locomotive, so no error checking for performance
----@param rail LuaEntity
----@param rail_dir defines.rail_direction
----@param network_id uint?
----@return uint?
-function RailMarcher.get_network_in_direction(rail, rail_dir, network_id)
-  -- TODO: implement this
-  -- might also change this to use a lookup table indexed by rail unit_numbers for better performance
-  -- needs pretty big table in memory, but 0 calls to surface.find_entities_filtered
-  local found_network_id = global.rail_number_lookup[rail.unit_number]
-  if found_network_id then return found_network_id end
-
-  for i = 1, 7 do
-    ---@type LuaEntity
-    ---@diagnostic disable-next-line: assign-type-mismatch fuck off
-    rail = rail.get_connected_rail{rail_direction = rail_dir, rail_connection_direction = STRAIGHT}
-    if rail then  -- see look i'm fucking checking it right here
-      found_network_id = global.rail_number_lookup[rail.unit_number]
-      if found_network_id then return found_network_id end
-    else  -- no more rails
-      break
-    end
-  end
-end
-
 -- finds poles next to a single rail <br>
 -- returns two tables if `rail` is a curved-rail, `back_poles` are the poles on the diagonal end
 ---@param rail LuaEntity
@@ -473,5 +447,283 @@ function RailMarcher.find_all_poles(rail, initial_pole)
     return nearby_poles
   end
 end
+
+
+
+-- finds all rails attached to the curved rails (and one rail past) that are after `rail` in the specified `direction` that match the `network_id` <br>
+---@param rail LuaEntity
+---@param direction defines.rail_direction
+---@param network_id uint the catenary network to compare to
+---@param rails LuaEntity[] the table to store found rails in
+---@param potential_rails LuaEntity[] rails that should be saved if this function finds anything
+local function find_rails_on_curved_rails(rail, direction, network_id, rails, potential_rails)
+  local rail_number_lookup = global.rail_number_lookup
+  local potential_rails_left, potential_rails_right = {}, {}
+  local old_rails_length = #rails
+
+  local left_rail = get_next_rail(rail, direction, LEFT)
+  if left_rail then
+    table.insert(potential_rails_left, left_rail)
+    if rail_number_lookup[left_rail.unit_number] == network_id then
+      join(rails, potential_rails_left)
+      potential_rails_left = {}
+    end
+  end
+
+  local right_rail = get_next_rail(rail, direction, RIGHT)
+  if right_rail then
+    table.insert(potential_rails_right, right_rail)
+    if rail_number_lookup[right_rail.unit_number] == network_id then
+      join(rails, potential_rails_right)
+      potential_rails_right = {}
+    end
+  end
+
+  local rail_into_curve_is_straight
+  if rail.type == "straight-rail" then
+    rail_into_curve_is_straight = is_orthogonal(rail.direction)
+  else  -- rail.type == "curved-rail"
+    rail_into_curve_is_straight = direction == FRONT
+  end
+
+  -- check the next rail after the curve too, adjusting direction for curved/diagonal shenanigans
+  if direction == FRONT and rail_into_curve_is_straight then
+    direction = BACK
+  elseif direction == BACK and not rail_into_curve_is_straight then
+    direction = FRONT
+  end
+
+  -- find poles on the rail after the curved rails (always in far_poles)
+  if left_rail then
+    local next_left_rail = get_next_rail(left_rail, direction, STRAIGHT)  -- straight/diagonal
+    if next_left_rail then
+      table.insert(potential_rails_left, next_left_rail)
+      if rail_number_lookup[next_left_rail.unit_number] == network_id then
+        join(rails, potential_rails_left)
+        potential_rails_left = {}
+      end
+    end
+    local next_left_right_rail = get_next_rail(left_rail, direction, RIGHT)  -- left turn out of diagonal after right turn into diagonal
+    if next_left_right_rail then
+      table.insert(potential_rails_left, next_left_right_rail)
+      if rail_number_lookup[next_left_right_rail.unit_number] == network_id then
+        join(rails, potential_rails_left)
+        potential_rails_left = {}
+      end
+    end
+    local next_left_left_rail = get_next_rail(left_rail, direction, LEFT)  -- left turn into diagonal after left turn out of diagonal
+    if next_left_left_rail then
+      table.insert(potential_rails_left, next_left_left_rail)
+      if rail_number_lookup[next_left_left_rail.unit_number] == network_id then
+        join(rails, potential_rails_left)
+        potential_rails_left = {}
+      end
+    end
+  end
+  if right_rail then
+    local next_right_rail = get_next_rail(right_rail, direction, STRAIGHT)  -- straight/diagonal
+    if next_right_rail then
+      table.insert(potential_rails_right, next_right_rail)
+      if rail_number_lookup[next_right_rail.unit_number] == network_id then
+        join(rails, potential_rails_right)
+        potential_rails_right = {}
+      end
+    end
+    local next_right_left_rail = get_next_rail(right_rail, direction, LEFT)  -- right turn out of diagonal after left turn into diagonal
+    if next_right_left_rail then
+      table.insert(potential_rails_right, next_right_left_rail)
+      if rail_number_lookup[next_right_left_rail.unit_number] == network_id then
+        join(rails, potential_rails_right)
+        potential_rails_right = {}
+      end
+    end
+    local next_right_right_rail = get_next_rail(right_rail, direction, RIGHT)  -- right turn into diagonal after right turn out of diagonal
+    if next_right_right_rail then
+      table.insert(potential_rails_right, next_right_right_rail)
+      if rail_number_lookup[next_right_right_rail.unit_number] == network_id then
+        join(rails, potential_rails_right)
+        potential_rails_right = {}
+      end
+    end
+  end
+
+  if #rails ~= old_rails_length then
+    join(rails, potential_rails)
+  end
+end
+
+
+-- marches along the straight rails after `rail` in the given `direction` and finds all rails that should be in the network <br>
+-- also finds curved rails on the end <br>
+-- found rails are moved from `potential_rails` to `rails
+---@param next_rail LuaEntity
+---@param direction defines.rail_direction
+---@param network_id uint the catenary network to compare to
+---@param rails LuaEntity[] the table to store found rails in
+---@param potential_rails LuaEntity[] any rails that should be saved if this function finds anything
+local function find_rails_on_straight_rails(next_rail, direction, network_id, rails, potential_rails)
+  local rail_number_lookup = global.rail_number_lookup
+
+  for _ = 1, 7 do
+    local straight_next_rail = get_next_rail(next_rail, direction, STRAIGHT)
+    if straight_next_rail then
+      table.insert(potential_rails, straight_next_rail)
+      if rail_number_lookup[straight_next_rail.unit_number] == network_id then
+        join(rails, potential_rails)
+        potential_rails = {}
+      end
+      next_rail = straight_next_rail
+    else
+      local left_next_rail = get_next_rail(next_rail, direction, LEFT)
+      if left_next_rail then
+        table.insert(potential_rails, left_next_rail)
+        if rail_number_lookup[left_next_rail.unit_number] == network_id then
+          join(rails, potential_rails)
+          potential_rails = {}
+        end
+      end
+      local right_next_rail = get_next_rail(next_rail, direction, RIGHT)
+      if right_next_rail then
+        table.insert(potential_rails, right_next_rail)
+        if rail_number_lookup[right_next_rail.unit_number] == network_id then
+          join(rails, potential_rails)
+          potential_rails = {}
+        end
+      end
+      break
+    end
+  end
+end
+
+
+
+-- returns a table containing all rail entities that are between this rail and other rails in its network <br>
+-- searches in both directions
+---@param rail LuaEntity the rail to search from
+---@param initial_pole LuaEntity the initial pole (used for knowing which end of a curved rail to march from)
+---@return LuaEntity[] rails
+function RailMarcher.find_all_rails(rail, initial_pole)
+  local rail_number_lookup = global.rail_number_lookup
+  local network_id = rail_number_lookup[rail.unit_number]
+
+  local rails = {}
+  local potential_rails_front, potential_rails_back = {}, {}
+
+  rendering.draw_circle{color = {0, 0, 0}, width = 2, filled = false, target = rail.position, radius = 0.5, surface = rail.surface, only_in_alt_mode = true}
+
+  if rail.type == "straight-rail" then
+    -- find adjacent straight rails
+    local front_rail = get_next_rail(rail, FRONT, STRAIGHT)
+    if front_rail then
+      table.insert(potential_rails_front, front_rail)
+      if rail_number_lookup[front_rail.unit_number] == network_id then
+        join(rails, potential_rails_front)
+        potential_rails_front = {}
+      end
+    end
+    local back_rail = get_next_rail(rail, BACK, STRAIGHT)
+    if back_rail then
+      table.insert(potential_rails_back, back_rail)
+      if rail_number_lookup[back_rail.unit_number] == network_id then
+        join(rails, potential_rails_back)
+        potential_rails_back = {}
+      end
+    end
+
+    -- find adjacent curved rails
+    find_rails_on_curved_rails(rail, FRONT, network_id, rails, potential_rails_front)
+    find_rails_on_curved_rails(rail, BACK, network_id, rails, potential_rails_back)
+
+    -- search along straight rails in both directions
+    if front_rail then
+      find_rails_on_straight_rails(rail, FRONT, network_id, rails, potential_rails_front)
+    end
+    if back_rail then
+      find_rails_on_straight_rails(rail, BACK, network_id, rails, potential_rails_back)
+    end
+
+    return rails
+
+    --
+  else  -- rail.type == curved-rail
+    local front_poles = find_adjacent_poles(rail, {0, 1, 0})
+
+    -- figure out what end this pole is on (if it's in the poles list it gets removed)
+    local on_orthogonal_end = util.remove_from_list(front_poles, initial_pole)
+
+    if on_orthogonal_end then  -- the front of a curved rail is the orthogonal end
+      -- find poles on the adjacent straight rail on the orthogonal direction
+      local front_rail = get_next_rail(rail, FRONT, STRAIGHT)
+      if front_rail then
+        table.insert(potential_rails_front, front_rail)
+        if rail_number_lookup[front_rail.unit_number] == network_id then
+          join(rails, potential_rails_front)
+          potential_rails_front = {}
+        end
+
+        if rail.direction <= 3 then  --  0-3 are BACK, 4-7 are FRONT
+          find_rails_on_straight_rails(front_rail, BACK, network_id, rails, potential_rails_front)
+        else
+          find_rails_on_straight_rails(front_rail, FRONT, network_id, rails, potential_rails_front)
+        end
+      end
+
+      -- find poles along adjacent curved rails on the orthogonal direction (only poles on close end block placement, poles on far end count for attaching)
+      find_rails_on_curved_rails(rail, FRONT, network_id, rails, potential_rails_front)
+
+      -- find poles on the straight rail in the diagonal direction
+      local back_rail = get_next_rail(rail, BACK, STRAIGHT)
+      if back_rail then
+        table.insert(potential_rails_back, back_rail)
+        if rail_number_lookup[back_rail.unit_number] == network_id then
+          join(rails, potential_rails_back)
+          potential_rails_back = {}
+        end
+      end
+      -- find poles along the curved rails in the orthogonal direction
+      find_rails_on_curved_rails(rail, BACK, network_id, rails, potential_rails_back)
+
+      --
+    else  -- is back (diagonal) end
+      -- find poles on the adjacent straight rail on the diagonal direction
+      local back_rail = get_next_rail(rail, BACK, STRAIGHT)
+      if back_rail then
+        table.insert(potential_rails_back, back_rail)
+        if rail_number_lookup[back_rail.unit_number] == network_id then
+          join(rails, potential_rails_back)
+          potential_rails_back = {}
+        end
+
+        if rail.direction <= 2 or rail.direction == 7 then  -- 0,1,2,7 are FRONT, 3,4,5,6 are BACK
+          find_rails_on_straight_rails(back_rail, FRONT, network_id, rails, potential_rails_back)
+        else
+          find_rails_on_straight_rails(back_rail, BACK, network_id, rails, potential_rails_back)
+        end
+      end
+
+      -- find poles along the adjacent curved rails on the diagonal direction
+      find_rails_on_curved_rails(rail, BACK, network_id, rails, potential_rails_back)
+
+      -- find poles on the straight rail in the orthogonal direction
+      local front_rail = get_next_rail(rail, FRONT, STRAIGHT)
+      if front_rail then
+        table.insert(potential_rails_front, front_rail)
+        if rail_number_lookup[front_rail.unit_number] == network_id then
+          join(rails, potential_rails_front)
+          potential_rails_front = {}
+        end
+      end
+      -- find close poles on the curved rails in the orthogonal direction
+      find_rails_on_curved_rails(rail, FRONT, network_id, rails, potential_rails_front)
+    end
+
+    return rails
+  end
+end
+
+
+
+
+
 
 return RailMarcher
