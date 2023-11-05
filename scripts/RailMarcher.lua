@@ -194,66 +194,8 @@ end
 RailMarcher.find_adjacent_poles = find_adjacent_poles
 
 
--- returns a table of all poles that are next along the rail in the specified direction, as well as the next rail in the `STRAIGHT` direction if it exists
----@param rail LuaEntity
----@param direction defines.rail_direction
----@param straight_color Color
----@return LuaEntity[] poles
----@return LuaEntity? next_straight_rail
-local function find_all_next_poles(rail, direction, straight_color)
-  local poles = {}
-
-  local next_straight_rail = get_next_rail(rail, direction, STRAIGHT)
-  if next_straight_rail then
-    join(poles, find_adjacent_poles(next_straight_rail, straight_color))  -- red
-  end
-
-  -- check curved rail directions
-  local left_rail = get_next_rail(rail, direction, LEFT)
-  if left_rail then
-    join(poles, find_adjacent_poles(left_rail, {1, 0, 1}))  -- purple
-    -- check the next rail after the curve too
-    -- TODO: this FRONT might need to change depending on what shape we're coming from
-    local direction_of_rail_into_curve = rail.direction
-    local direction = direction  -- intentionally redeclaring local direction
-    if direction == FRONT and (direction_of_rail_into_curve == HORIZONTAL or direction_of_rail_into_curve == VERTICAL) then
-      direction = BACK
-    elseif direction == BACK and not (direction_of_rail_into_curve == HORIZONTAL or direction_of_rail_into_curve == VERTICAL) then
-      direction = FRONT
-    end
-
-    local next_left_rail = get_next_rail(left_rail, direction, STRAIGHT)  -- exiting a curve is always "STRAIGHT"
-    if next_left_rail then
-      join(poles, find_adjacent_poles(next_left_rail, {0, 1, 1}))         -- cyan
-    end
-  end
-
-  local right_rail = get_next_rail(rail, direction, RIGHT)
-  game.print("rails: " .. tostring(left_rail) .. " " .. tostring(right_rail))
-  if right_rail then
-    join(poles, find_adjacent_poles(right_rail, {1, 0, 1}))  -- purple
-    -- check the next rail after the curve too
-    -- TODO: this FRONT might need to change depending on what shape we're coming from
-    local direction_of_rail_into_curve = rail.direction
-    if direction == FRONT and (direction_of_rail_into_curve == HORIZONTAL or direction_of_rail_into_curve == VERTICAL) then
-      direction = BACK
-    elseif direction == BACK and not (direction_of_rail_into_curve == HORIZONTAL or direction_of_rail_into_curve == VERTICAL) then
-      direction = FRONT
-    end
-
-    local next_right_rail = get_next_rail(right_rail, direction, STRAIGHT)  -- exiting a curve is always "STRAIGHT"
-    if next_right_rail then
-      join(poles, find_adjacent_poles(next_right_rail, {0, 1, 1}))          -- cyan
-    end
-  end
-
-  return poles, next_straight_rail
-end
-
-
 -- finds all poles next to the curved rails (and one rail past) that are after `rail` in the specified `direction` <br>
 -- returns two tables, close_poles and far_poles. `direction` is used to know what poles are "close" <br>
--- this function only works for `straight-rail`s
 ---@param rail LuaEntity
 ---@param direction defines.rail_direction
 ---@return LuaEntity[] close_poles
@@ -277,8 +219,15 @@ local function find_poles_on_curved_rails(rail, direction)
     join(back_poles, b)
   end
 
+  local rail_into_curve_is_straight
+  if rail.type == "straight-rail" then
+    rail_into_curve_is_straight = is_orthogonal(rail.direction)
+  else  -- rail.type == "curved-rail"
+    rail_into_curve_is_straight = direction == FRONT
+  end
+
   -- determine which poles are close/far
-  if is_orthogonal(rail.direction) then
+  if rail_into_curve_is_straight then
     -- straight rail, use `front_poles` for too-close check
     close_poles = front_poles
     far_poles = back_poles
@@ -288,7 +237,6 @@ local function find_poles_on_curved_rails(rail, direction)
   end
 
   -- check the next rail after the curve too, adjusting direction for curved/diagonal shenanigans
-  local rail_into_curve_is_straight = is_orthogonal(rail.direction)
   if direction == FRONT and rail_into_curve_is_straight then
     direction = BACK
   elseif direction == BACK and not rail_into_curve_is_straight then
@@ -329,6 +277,33 @@ local function find_poles_on_curved_rails(rail, direction)
 end
 
 
+-- marches along the straight rails after `rail` in the given `direction` and finds all adjacent poles <br>
+-- also finds poles on the close end of `curved-rail`s <br>
+-- found poles are added to `nearby_poles`
+---@param next_rail LuaEntity
+---@param direction defines.rail_direction
+---@param nearby_poles LuaEntity[]
+local function find_poles_on_straight_rails(next_rail, direction, nearby_poles)
+  for _ = 1, 7 do
+    local straight_next_rail = get_next_rail(next_rail, direction, STRAIGHT)
+    if straight_next_rail then
+      join(nearby_poles, find_adjacent_poles(straight_next_rail, {0, 1, 0}))  -- green
+      next_rail = straight_next_rail
+    else
+      local left_next_rail = get_next_rail(next_rail, direction, LEFT)
+      if (left_next_rail) then
+        join(nearby_poles, (find_adjacent_poles(left_next_rail, {1, 0.5, 1})))  -- magenta
+      end
+      local right_next_rail = get_next_rail(next_rail, direction, RIGHT)
+      if (right_next_rail) then
+        join(nearby_poles, (find_adjacent_poles(right_next_rail, {1, 0.5, 1})))  -- magenta
+      end
+      break
+    end
+  end
+end
+
+
 -- returns a table containing all pole entities that could be connected to, or `false` if there's a pole too close to this rail <br>
 -- searches in both directions <br>
 -- used when finding poles for a pole to connect to
@@ -336,12 +311,14 @@ end
 ---@param initial_pole LuaEntity the pole being placed, ignored in the too-close checks
 ---@return LuaEntity[]|false nearby_poles
 function RailMarcher.find_all_poles(rail, initial_pole)
+  rendering.draw_circle{color = {0, 0, 0}, width = 2, filled = false, target = rail.position, radius = 0.5, surface = rail.surface, only_in_alt_mode = true}
+
   if rail.type == "straight-rail" then
     local nearby_poles = {}
     --if straight rail:
     -- [find all poles next to this rail & the two adjacent rails]
     -- [if any exist, cancel placement]
-    -- [find all poles on curved rails next to this rail] NOT: ~~and on curved rails next to the two adjacent rails~~
+    -- [find all poles on curved rails next to this rail]
     -- [include poles one the rail one past the curved rail] (straight/diagonal/curved, doesn't matter they're all a call to find_adjacent_poles)
     -- [find all poles on straight rails past the two ajacent rails]
 
@@ -377,73 +354,96 @@ function RailMarcher.find_all_poles(rail, initial_pole)
 
     -- search along straight rails in both directions
     if front_rail then
-      for _ = 1, 7 do
-        front_rail = get_next_rail(front_rail, FRONT, STRAIGHT)
-        if front_rail then
-          join(nearby_poles, find_adjacent_poles(front_rail, {0, 1, 0}))  -- green
-        else
-          break
-        end
-      end
+      find_poles_on_straight_rails(rail, FRONT, nearby_poles)
     end
     if back_rail then
-      for _ = 1, 7 do
-        back_rail = get_next_rail(back_rail, BACK, STRAIGHT)
-        if back_rail then
-          join(nearby_poles, find_adjacent_poles(back_rail, {0, 1, 0}))  -- green
-        else
-          break
-        end
-      end
+      find_poles_on_straight_rails(rail, BACK, nearby_poles)
     end
 
 
     return nearby_poles
 
 
-    -- rail.type == curved-rail
-  else
+    --
+  else  -- rail.type == curved-rail
     -- if curved rail:
     -- [find all poles next to this end of the curved rail] & [the rail adjacent to the end this pole is on]
     -- [if any exist, cancel placement]
-    -- find all poles on the other end of this curved rail, one rail past the end
-    -- find all poles on straight rails on this end of the curved rail
+    -- [find all poles on the other end of this curved rail, one rail past the end]
+    -- [find all poles on straight rails on this end of the curved rail]
 
     local front_poles, back_poles = find_adjacent_poles(rail, {0, 1, 0})
     local too_close_poles, nearby_poles
 
     -- figure out what end this pole is on (if it's in the poles list it gets removed)
-    local on_front_end = util.remove_from_list(front_poles, initial_pole)
+    local on_orthogonal_end = util.remove_from_list(front_poles, initial_pole)
 
-    if on_front_end then  -- the front of a curved rail is the orthogonal end
+    if on_orthogonal_end then  -- the front of a curved rail is the orthogonal end
+      game.print("on orthogonal end")
       too_close_poles = front_poles
       nearby_poles = back_poles
 
-      -- get next rail(s) in BACK direction for nearby_poles
-      -- straight, whatever the curved direction is
-
-      -- may be able to generalize this to a generic "close direction, far direction" to reduce code duplication
-      -- close direction: get the close/far poles for the curves, join the close poles for the straight
-      -- far direction: get both the pole lists for the curves, join the poles for the straight
-
-      -- use FRONT direction for next rail with too-close poles
-      too_close_poles, nearby_poles = find_poles_on_curved_rails(rail, FRONT)
+      -- find poles on the adjacent straight rail on the orthogonal direction
       local front_rail = get_next_rail(rail, FRONT, STRAIGHT)
       if front_rail then
         join(too_close_poles, find_adjacent_poles(front_rail, {1, 0, 0}))
+
+        if rail.direction <= 3 then  --  0-3 are BACK, 4-7 are FRONT
+          find_poles_on_straight_rails(front_rail, BACK, nearby_poles)
+        else
+          find_poles_on_straight_rails(front_rail, FRONT, nearby_poles)
+        end
       end
 
+      -- find poles along adjacent curved rails on the orthogonal direction (only poles on close end block placement, poles on far end count for attaching)
+      local close_poles, far_poles = find_poles_on_curved_rails(rail, FRONT)
+      join(too_close_poles, close_poles)  -- count these close poles as being too close
+      join(nearby_poles, far_poles)
+
+      -- find poles on the straight rail in the diagonal direction
+      local back_rail = get_next_rail(rail, BACK, STRAIGHT)
+      if back_rail then
+        join(nearby_poles, (find_adjacent_poles(back_rail, {1, 1, 1})))  -- white
+      end
+      -- find poles along the curved rails in the orthogonal direction
+      close_poles, far_poles = find_poles_on_curved_rails(rail, BACK)
+      join(too_close_poles, close_poles)  -- count these close poles as being too close
+      join(nearby_poles, far_poles)
 
       --
     else  -- is back (diagonal) end
-      -- find poles on the opposite end
-      too_close_poles, nearby_poles = find_poles_on_curved_rails(rail, FRONT)
-      util.remove_from_list(back_poles, initial_pole)  -- remove the initial_pole from the back_poles list instead
-      -- and join poles that were on this rail
-      join(too_close_poles, back_poles)
-      join(nearby_poles, front_poles)
+      game.print("on diagonal end")
 
-      -- find too-close poles on the rail in the BACK direction
+      util.remove_from_list(back_poles, initial_pole)  -- remove the initial_pole from the back_poles list instead
+      too_close_poles = back_poles
+      nearby_poles = front_poles
+
+      -- find poles on the adjacent straight rail on the diagonal direction
+      local back_rail = get_next_rail(rail, BACK, STRAIGHT)
+      if back_rail then
+        join(too_close_poles, find_adjacent_poles(back_rail, {1, 0, 0}))
+
+        if rail.direction <= 2 or rail.direction == 7 then  -- 0,1,2,7 are FRONT, 3,4,5,6 are BACK
+          find_poles_on_straight_rails(back_rail, FRONT, nearby_poles)
+        else
+          find_poles_on_straight_rails(back_rail, BACK, nearby_poles)
+        end
+      end
+
+      -- find poles along the adjacent curved rails on the diagonal direction
+      local close_poles, far_poles = find_poles_on_curved_rails(rail, BACK)
+      join(too_close_poles, close_poles)  -- count these close poles as being too close
+      join(nearby_poles, far_poles)
+
+      -- find poles on the straight rail in the orthogonal direction
+      local front_rail = get_next_rail(rail, FRONT, STRAIGHT)
+      if front_rail then
+        join(nearby_poles, (find_adjacent_poles(front_rail, {1, 1, 0})))
+      end
+      -- find poles along the curved rails in the orthogonal direction
+      local f, b = find_poles_on_curved_rails(rail, FRONT)
+      join(nearby_poles, f)
+      join(nearby_poles, b)
     end
 
     -- if there's another pole other than this one, it's too close
@@ -451,82 +451,8 @@ function RailMarcher.find_all_poles(rail, initial_pole)
       for i, other_pole in pairs(too_close_poles) do highlight(other_pole, i, {0, 1, 0.5}) end  -- "SpringGreen"
       return false
     end
-
-
-    -- todo: search along straight rails connected to whichever end of the curved rail this pole is on
-
-
     return nearby_poles
   end
-
-
-
-
-  --[[
-  -- check this rail
-  nearby_poles = find_adjacent_poles(rail, {0, 1, 0})
-
-  local poles, front_rail, back_rail
-  poles, front_rail = find_all_next_poles(rail, FRONT, {0, 1, 0})
-  join(nearby_poles, poles)
-  poles, back_rail = find_all_next_poles(rail, BACK, {0, 1, 0})
-  join(nearby_poles, poles)
-
-
-  -- check further away rails
-  if front_rail then
-    for _ = 1, 7 do
-      -- get poles from all rail directions, if no straight rail then break
-      poles, front_rail = find_all_next_poles(front_rail, FRONT, {1, 0, 0})
-      join(far_poles, poles)
-      if not front_rail then break end
-    end
-  end
-
-  if back_rail then
-    for _ = 1, 7 do
-      -- get poles from all rail directions, if no straight rail then break
-      poles, back_rail = find_all_next_poles(back_rail, BACK, {1, 0, 0})
-      join(far_poles, poles)
-      if not back_rail then break end
-    end
-  end
-
-
-  return nearby_poles, far_poles
-
-  ]]
-
-  --[[
-  local surface = rail.surface
-
-  -- first, check next to this rail
-  if rail.type == "straight-rail" then
-    rendering.draw_circle{color = {0, 1, 0}, width = 2, filled = false, target = position, surface = surface, radius = 1.5, only_in_alt_mode = true}
-    found_poles = surface.find_entities_filtered{position = position, radius = 1.5, name = "oe-catenary-pole"}  -- name can be an array
-  elseif rail.type == "curved-rail" then
-    game.print("curved rail not implemented")
-    return
-  else
-    game.print("cannot find poles next to " .. rail.name .. ", it's not a rail")
-    return
-  end
-
-  -- then, loop for a few rails to find poles next to them
-  -- i is used to index into the found_poles table
-  for i = 2, 7 do
-    ---@diagnostic disable-next-line: cast-local-type
-    rail = rail.get_connected_rail{rail_direction = rail_dir, rail_connection_direction = STRAIGHT}
-    if rail then
-      rendering.draw_circle{color = {1, 0, 0}, width = 2, filled = false, target = rail, surface = surface, radius = 2, only_in_alt_mode = true}
-      local all_poles = surface.find_entities_filtered{position = rail.position, radius = 2, name = "oe-catenary-pole"}
-      game.print(serpent.line(all_poles))
-      found_poles[i] = all_poles[1]
-    else  -- we're out of rails in the STRAIGHT direction
-      break
-    end
-  end
-  ]]
 end
 
 return RailMarcher
