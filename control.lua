@@ -11,6 +11,8 @@ local update_locomotive = LocomotiveManager.update_locomotive
 
 if script.active_mods["gvv"] then require("__gvv__.gvv")() end
 
+--- debug, should move later
+local show_rails
 
 ---@param entity LuaEntity
 ---@param event EventData.on_built_entity|EventData.on_robot_built_entity|EventData.script_raised_built
@@ -149,6 +151,12 @@ local function on_tick(event)
   end
   global.queued_train_state_changes.next_tick = global.queued_train_state_changes.next_next_tick
   global.queued_train_state_changes.next_next_tick = {}
+
+  for _, player in pairs(game.connected_players) do
+    if global.show_rail_power[player.index] then
+      show_rails(player.surface)
+    end
+  end
 end
 
 --script.on_event(defines.events.on_tick, on_tick)
@@ -187,6 +195,8 @@ local function initalize()
 
   -- ew.
   global.queued_train_state_changes = global.queued_train_state_changes or {next_tick = {}, next_next_tick = {}}
+
+  global.show_rail_power = global.show_rail_power or {}
 end
 
 -- called every time the game loads. cannot access the game object or global table
@@ -215,6 +225,20 @@ function highlight(entity, text, color)
   rendering.draw_text{color = color or {1, 0.7, 0, 1}, text = text, target = entity, surface = entity.surface, only_in_alt_mode = true}
 end
 
+---@param surface LuaSurface
+show_rails = function(surface)
+  rendering.clear(script.mod_name)
+  local all_rails = surface.find_entities_filtered{
+    type = {"straight-rail", "curved-rail"}
+  }
+  for _, rail in pairs(all_rails) do
+    local id = global.rail_number_lookup[rail.unit_number]
+    if id then
+      highlight(rail, id, {0, 1, 1})
+    end
+  end
+end
+
 commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function(command)
   ---@type LuaPlayer
   local player = game.players[command.player_index]
@@ -223,7 +247,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
   if command.parameter then
     options = util.split(command.parameter, " ")
   else
-    player.print("commands: all, find_poles, next_rail, update_loco, update_train, show_rails, clear, initalize")
+    player.print("commands: all, march, find_poles, next_rail, update_loco, update_train, show_rails, clear, initalize")
     return
   end
 
@@ -247,20 +271,21 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
   end
 
   if subcommand == "show_rails" then
-    rendering.clear(script.mod_name)
-    local all_rails = player.surface.find_entities_filtered{
-      type = {"straight-rail", "curved-rail"}
-    }
-    for _, rail in pairs(all_rails) do
-      local id = global.rail_number_lookup[rail.unit_number]
-      if id then
-        highlight(rail, id, {0, 1, 1})
-      end
+    local toggle = options[2]
+    if toggle == "on" then
+      global.show_rail_power[player.index] = true
+    elseif toggle == "off" then
+      global.show_rail_power[player.index] = false
+    elseif toggle then
+      player.print("invalid option: " .. tostring(toggle))
+      player.print("usage: /oe-debug show_rails <toggle_constant>")
+    else
+      show_rails(player.surface)
     end
     return
   end
 
-  if subcommand ~= "find_poles" and subcommand ~= "all" and subcommand ~= "next_rail" then
+  if subcommand ~= "find_poles" and subcommand ~= "all" and subcommand ~= "next_rail" and subcommand ~= "march" then
     player.print("unknown command")
     return
   end
@@ -271,7 +296,26 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
     return
   end
 
-  if subcommand == "find_poles" then
+  if subcommand == "march" then
+    local direction = tonumber(options[2])
+    local distance = tonumber(options[3])
+    local network_id = tonumber(options[4])
+    if not direction or not distance then
+      player.print("invalid option: " .. tostring(direction) .. " " .. tostring(distance))
+      player.print("usage: /oe-debug march_to_connect <direction> <distance> [network_id]")
+      return
+    end
+    local path = {}
+    local on_pole = function(pole, current_path, current_distance)
+      game.print("  on_pole: pole=" .. pole.unit_number .. ", path=" .. serpent.line(current_path) .. ", distance=" .. current_distance)
+    end
+    local on_end = function(current_path)
+      game.print("  on_end: path=" .. serpent.line(current_path))
+    end
+    RailMarcher.march_rail(rail, direction, path, distance, on_pole, on_end, network_id)
+
+    --
+  elseif subcommand == "find_poles" then
     local poles, other_poles = RailMarcher.find_adjacent_poles(rail, {1, 1, 0, 0.5})
 
     for i, pole in pairs(poles) do

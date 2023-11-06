@@ -8,6 +8,8 @@ local CatenaryManager = {}
 ---@field transformers LuaEntity[]  The transformers powering this catenary network
 ---@field electric_network_id uint  The electric network this catenary network is connected to
 
+---@alias catenary_network_id uint
+
 --[[
   catenary pole directions: (this is how rail signals do it)
   0 (defines.direction.north) = rail on the right, vertical
@@ -244,7 +246,7 @@ end
 
 --- creates a new catenary network for the transformer. returns the new network id
 ---@param transformer LuaEntity
----@return uint catenary_id
+---@return catenary_network_id catenary_id
 local function create_catenary_network(transformer)
   local catenary_id = global.next_catenary_network_id
   global.next_catenary_network_id = global.next_catenary_network_id + 1

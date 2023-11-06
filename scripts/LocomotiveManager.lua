@@ -8,7 +8,7 @@ local LocomotiveManager = {}
 ---@class locomotive_data
 ---@field locomotive LuaEntity The locomotive this data is for
 ---@field interface LuaEntity? The `electric-energy-interface` this locomotive is using to connect to the electrical network, or nil if not connected
----@field network_id uint?     The id of the catenary network this locomotive is attached to, or nil if not connected
+---@field network_id catenary_network_id?     The id of the catenary network this locomotive is attached to, or nil if not connected
 ---@field power_state number   0 = stopped, 1 = moving, 2 = braking, 3 = manual (varies)
 ---@field is_burning boolean   Is this locomotive currently powered (burner has fuel)
 

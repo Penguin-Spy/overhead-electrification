@@ -365,6 +365,19 @@ data:extend{
     group = "other",
     order = "zz"
   },
+  {
+    type = "shortcut",
+    name = "oe-toggle-powered-rail-view",
+    action = "lua",
+    toggleable = true,
+    technology_to_unlock = "oe-electric-railway",
+    ---@type data.Sprite
+    icon = {
+      filename = "__core__/graphics/icons/tooltips/tooltip-category-electricity.png",
+      size = 36,
+      mipmap_count = 2
+    }
+  }
 }
 
 
