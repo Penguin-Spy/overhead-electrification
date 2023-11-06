@@ -137,7 +137,7 @@ local function on_tick(event)
   for i, pole in pairs(global.queued_network_changes) do
     if pole.valid then
       game.print("queued recursive update of " .. pole.unit_number)
-      CatenaryManager.recursively_update_network(pole, global.electric_network_lookup[pole.electric_network_id])
+      CatenaryManager.recursively_update_network(global.electric_network_lookup[pole.electric_network_id])
     else
       game.print("queued recursive update of not valid pole.")
     end
