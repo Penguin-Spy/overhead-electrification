@@ -262,7 +262,7 @@ local function march_rail(rail, direction, path, distance, on_pole, on_end, cb_a
       if b and distance > 3 then
         left_rail = false  -- don't march past this rail
         if on_pole then
-          local quit = on_pole(b, left_path, distance, cb_arg)
+          local quit = on_pole(b, left_path, distance - 3, cb_arg)
           if quit then return quit end
         end
       end
@@ -304,7 +304,7 @@ local function march_rail(rail, direction, path, distance, on_pole, on_end, cb_a
       if b and distance > 3 then
         right_rail = false  -- don't march past this rail
         if on_pole then
-          local quit = on_pole(b, right_path, distance, cb_arg)
+          local quit = on_pole(b, right_path, distance - 3, cb_arg)
           if quit then return quit end
         end
       end

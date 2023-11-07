@@ -235,35 +235,82 @@ function CatenaryManager.on_pole_placed(this_pole)
     return "oe-invalid-pole-position"
   end
 
-  -- from adjacent rails:
-  -- on straight-rails:
-  --  find_adjacent_poles, return "oe-pole-too-close" if other poles
-  --  march_rail(rail, FRONT) and march_rail(rail, BACK), returning "oe-pole-too-close" if either return quit=true
-  -- on curved-rails: f, b = find_adjacent poles
-  --  check which end we're on, return "oe-pole-too-close" if other poles on the end we're on
-  --
-  -- should only be one of each type of rail
-  -- if no straight-rail, just check curved-rail, and vice versa
+  -- should only be one of each type of rail at most
+  for _, rail in pairs(rails) do
+    if rail.type == "straight-rail" then
+      -- find_adjacent_poles, return "oe-pole-too-close" if other poles
+      local poles = RailMarcher.find_adjacent_poles(rail, {1, 0, 0}, false)
+      util.remove_from_list(poles, this_pole)
+      if #poles > 0 then
+        game.print("pole too close")
+        remove_pole_graphics(this_pole)
+        return "oe-pole-too-close"
+      end
+      -- march_rail(rail, FRONT) and march_rail(rail, BACK), returning "oe-pole-too-close" if either return quit=true
+      if RailMarcher.march_rail(rail, defines.rail_direction.front, {}, 7, on_pole, nil, this_pole)
+          or RailMarcher.march_rail(rail, defines.rail_direction.back, {}, 7, on_pole, nil, this_pole) then
+        game.print("pole too close during marching")
+        remove_pole_graphics(this_pole)
+        return "oe-pole-too-close"
+      end
+      -- if placement succeded, mark adjacent rail as powered by our catenary network
+      global.rail_number_lookup[rail.unit_number] = global.electric_network_lookup[this_pole.electric_network_id]
 
+      --
+    else  -- rail.type == "curved-rail"
+      local f, b = RailMarcher.find_adjacent_poles(rail, {1, 0, 0}, false)
 
-  local poles = RailMarcher.find_adjacent_poles(rails[1], {1, 0, 0}, false)
-  util.remove_from_list(poles, this_pole)
-  if #poles > 0 then
-    game.print("pole too close")
-    remove_pole_graphics(this_pole)
-    return "oe-pole-too-close"
+      -- check which end we're on, return "oe-pole-too-close" if other poles on the end we're on
+      local on_orthogonal_end = util.remove_from_list(f, this_pole)
+      if on_orthogonal_end then  -- on "FRONT" end of curved-rail
+        -- if there were other poles on this end, block placement
+        if #f > 0 then
+          game.print("pole too close")
+          remove_pole_graphics(this_pole)
+          return "oe-pole-too-close"
+        end
+        -- march in the "FRONT" direction, and if there are poles there, block placement
+        if RailMarcher.march_rail(rail, defines.rail_direction.front, {}, 7, on_pole, nil, this_pole) then
+          game.print("pole too close during marching")
+          remove_pole_graphics(this_pole)
+          return "oe-pole-too-close"
+        end
+        -- if there's a back pole, connect to it & don't march
+        if b and b[1] then
+          on_pole(b[1], {}, 4, this_pole)
+        else
+          -- march in the "BACK" direction (with less distance), no blocking because anything on that end is far enough away
+          RailMarcher.march_rail(rail, defines.rail_direction.back, {}, 3, on_pole, nil, this_pole)
+        end
+
+        --
+      else  -- on "BACK" end of curved-rail
+        -- if there were other poles on this end, block placement
+        util.remove_from_list(b, this_pole)
+        if #b > 0 then
+          game.print("pole too close")
+          remove_pole_graphics(this_pole)
+          return "oe-pole-too-close"
+        end
+        -- march in the "BACK" direction, and if there are poles there, block placement
+        if RailMarcher.march_rail(rail, defines.rail_direction.back, {}, 7, on_pole, nil, this_pole) then
+          game.print("pole too close during marching")
+          remove_pole_graphics(this_pole)
+          return "oe-pole-too-close"
+        end
+        -- if there's a front pole, connect to it & don't march
+        if f and f[1] then
+          on_pole(f[1], {}, 4, this_pole)
+        else
+          -- march in the "FRONT" direction (with less distance), no blocking because anything on that end is far enough away
+          RailMarcher.march_rail(rail, defines.rail_direction.front, {}, 3, on_pole, nil, this_pole)
+        end
+      end
+
+      -- if placement succeded, mark adjacent rail as powered by our catenary network
+      global.rail_number_lookup[rail.unit_number] = global.electric_network_lookup[this_pole.electric_network_id]
+    end
   end
-
-  local quit = RailMarcher.march_rail(rails[1], defines.rail_direction.front, {}, 7, on_pole, nil, this_pole)
-  if quit then
-    game.print("pole too close during marching")
-    remove_pole_graphics(this_pole)
-    return "oe-pole-too-close"
-  end
-
-  -- if placement succeded, mark all adjacent rails as powered by our catenary network
-  -- TODO: do this smarter as noted above
-  global.rail_number_lookup[rails[1].unit_number] = global.electric_network_lookup[this_pole.electric_network_id]
 
 
   -- placement is valid, if this is a transformer, create catenary network

@@ -169,7 +169,7 @@ script.on_nth_tick(30, function(event)
       local all_rails = player.surface.find_entities_filtered{
         type = {"straight-rail", "curved-rail"},
         position = player.position,
-        radius = 10
+        radius = 32
       }
       for _, rail in pairs(all_rails) do
         local id = global.rail_number_lookup[rail.unit_number]
