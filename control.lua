@@ -151,12 +151,6 @@ local function on_tick(event)
   end
   global.queued_train_state_changes.next_tick = global.queued_train_state_changes.next_next_tick
   global.queued_train_state_changes.next_next_tick = {}
-
-  for _, player in pairs(game.connected_players) do
-    if global.show_rail_power[player.index] then
-      show_rails(player.surface)
-    end
-  end
 end
 
 --script.on_event(defines.events.on_tick, on_tick)
@@ -167,6 +161,45 @@ script.on_nth_tick(2, on_tick)
 script.on_event(defines.events.on_train_changed_state, function(event  --[[@as EventData.on_train_changed_state]])
   table.insert(global.queued_train_state_changes.next_next_tick, event.train)
 end)
+
+
+script.on_nth_tick(30, function(event)
+  for _, player in pairs(game.connected_players) do
+    if global.show_rail_power[player.index] then
+      local all_rails = player.surface.find_entities_filtered{
+        type = {"straight-rail", "curved-rail"},
+        position = player.position,
+        radius = 10
+      }
+      for _, rail in pairs(all_rails) do
+        local id = global.rail_number_lookup[rail.unit_number]
+        if id then
+          rendering.draw_circle{
+            color = {0, 1, 1}, radius = 0.5, width = 2, filled = false,
+            target = rail, surface = rail.surface, players = {player},
+            time_to_live = 31
+          }
+          rendering.draw_text{
+            color = {0, 1, 1}, text = id,
+            target = rail, surface = rail.surface, players = {player},
+            time_to_live = 31
+          }
+        end
+      end
+    end
+  end
+end)
+
+
+script.on_event(defines.events.on_lua_shortcut, function(event)
+  if event.prototype_name == "oe-toggle-powered-rail-view" then
+    local player = game.get_player(event.player_index)
+    if not player then return end
+    global.show_rail_power[event.player_index] = not global.show_rail_power[event.player_index]
+    player.set_shortcut_toggled("oe-toggle-powered-rail-view", global.show_rail_power[event.player_index])
+  end
+end)
+
 
 
 -- [[ Initalization ]] --
@@ -182,11 +215,13 @@ local function initalize()
   -- map of electric_network_id to catenary network_id <br>
   -- used for determining what network a pole is in
   -- updated when electric network of transformer changes
+  ---@type { [uint]: catenary_network_id? }
   global.electric_network_lookup = global.electric_network_lookup or {}
 
   -- map of rail LuaEntity.unit_number to catenary network_id
   -- used for determining locomotive power
   -- updated when poles are placed/removed
+  ---@type { [uint]: catenary_network_id? }
   global.rail_number_lookup = global.rail_number_lookup or {}
 
   -- list of poles who's electric network may have changed and needs checking
@@ -196,6 +231,8 @@ local function initalize()
   -- ew.
   global.queued_train_state_changes = global.queued_train_state_changes or {next_tick = {}, next_next_tick = {}}
 
+  -- mapping from player index to player's "show rail power visualization" toggle
+  ---@type { [uint]: boolean? }
   global.show_rail_power = global.show_rail_power or {}
 end
 
@@ -316,7 +353,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
 
     --
   elseif subcommand == "find_poles" then
-    local poles, other_poles = RailMarcher.find_adjacent_poles(rail, {1, 1, 0, 0.5})
+    local poles, other_poles = RailMarcher.find_adjacent_poles(rail, {1, 1, 0, 0.5}, false)  --[[@as(LuaEntity[])]]  -- in not single mode this always returns arrays
 
     for i, pole in pairs(poles) do
       player.print("found #" .. i .. ": " .. pole.name)
