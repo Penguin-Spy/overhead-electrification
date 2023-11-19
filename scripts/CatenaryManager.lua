@@ -5,8 +5,9 @@ local CatenaryManager = {}
 
 -- Global table storage for catenary network data
 ---@class catenary_network_data
----@field transformers LuaEntity[]  The transformers powering this catenary network
----@field electric_network_id uint  The electric network this catenary network is connected to
+---@field transformers        { uint: LuaEntity[] } map of surface id to LuaEntity array. The transformers powering this catenary network.
+---@field electric_network_id uint                  The electric network this catenary network is connected to
+---@field headless            boolean               Does this catenary network have any transformers on any surface?
 
 ---@alias catenary_network_id uint
 
@@ -76,7 +77,7 @@ local function get_adjacent_rails(pole, direction)
         if rails then return rails, found_dir end
       end
     end
-    game.print("no direction given, all 8 searched and no found")
+    log("no direction given, all 8 searched and no found")
     return nil, nil  -- no rail found
   end
 
@@ -148,19 +149,76 @@ end
 
 
 --- creates a new catenary network for the transformer. returns the new network id
----@param transformer LuaEntity
+---@param electric_network_id uint
 ---@return catenary_network_id catenary_id
-local function create_catenary_network(transformer)
+local function create_catenary_network(electric_network_id)
   local catenary_id = global.next_catenary_network_id
   global.next_catenary_network_id = global.next_catenary_network_id + 1
   global.catenary_networks[catenary_id] = {
-    transformers = {transformer},
-    electric_network_id = transformer.electric_network_id
+    transformers = {},
+    electric_network_id = electric_network_id,
+    headless = true
   }
-  global.electric_network_lookup[transformer.electric_network_id] = catenary_id
-  game.print("created catenary network " .. tostring(catenary_id))
+  global.electric_network_lookup[electric_network_id] = catenary_id
+  log("created catenary network " .. tostring(catenary_id))
   return catenary_id
 end
+
+--- adds a transformer to a catenary network
+---@param network catenary_network_data
+---@param transformer LuaEntity
+local function add_transformer_to_network(network, transformer)
+  local surface_index = transformer.surface_index
+  network.transformers[surface_index] = network.transformers[surface_index] or {}
+  table.insert(network.transformers[surface_index], transformer)
+  network.headless = false
+end
+
+
+-- merges two catenary networks. <br>
+--- network B must be headless <br>
+--- all rails in network B are added to network A <br>
+--- network A remains in the `global.electric_network_lookup` table <br>
+---@param network_a_id catenary_network_id
+---@param network_b_id catenary_network_id
+local function merge_catenary_networks(network_a_id, network_b_id)
+  local network_a = global.catenary_networks[network_a_id]
+  local network_b = global.catenary_networks[network_b_id]
+
+  if not network_b.headless then
+    error("attempt to merge from non-headless catenary network: " .. network_b_id)
+  end
+  if network_a.headless then
+    error("attempt to merge into headless network: " .. network_a_id)
+  end
+
+  log("merging network " .. network_b_id .. " (" .. network_b.electric_network_id .. ") into " .. network_a_id .. " (" .. network_a.electric_network_id .. ")")
+
+  -- move rails
+  local rail_lut = global.rail_number_lookup
+  for rail_id, network_id in pairs(rail_lut) do
+    if network_id == network_b_id then
+      rail_lut[rail_id] = network_a_id
+    end
+  end
+
+  -- remove network B
+  global.electric_network_lookup[network_b.electric_network_id] = nil
+  global.catenary_networks[network_b_id] = nil
+end
+
+
+---@param pole_a LuaEntity
+---@param pole_b LuaEntity
+local function connect_poles(pole_a, pole_b)
+  log("connecting to pole: " .. tostring(pole_b.unit_number))
+  local pos = pole_a.position
+  pole_a.teleport(pole_b.position)
+  pole_a.connect_neighbour(pole_b)
+  pole_a.teleport(pos)
+end
+
+
 
 
 -- 2? versions of this needed:
@@ -179,40 +237,83 @@ end
 ---@param this_pole LuaEntity
 ---@return boolean? quit
 local function on_pole(other_pole, path, distance, this_pole)
+  log("enter on_pole")
   if distance == 7 then
-    game.print("pole too close")
+    log("pole too close")
     remove_pole_graphics(this_pole)
     return true  -- quit marching early
   end
 
-  local catenary_lut = global.electric_network_lookup
-  local our_network_id = catenary_lut[ this_pole.electric_network_id  --[[@as integer]] ]
-  local other_network_id = catenary_lut[ other_pole.electric_network_id  --[[@as integer]] ]
+  local this_network_id = global.electric_network_lookup[ this_pole.electric_network_id  --[[@as integer]] ]
+  local other_network_id = global.electric_network_lookup[ other_pole.electric_network_id  --[[@as integer]] ]
+  local this_network = global.catenary_networks[this_network_id]
+  local other_network = global.catenary_networks[other_network_id]
 
-  -- can't connect to a pole without a network
-  -- TODO: it'd be more user-friendly if this connected, but that'd be very tricky to implement
-  -- would have to create a catenary network without a transformer for the poles
-  -- and also handle merging catenary networks (though i think i'll have to do that anyways)
-  if not other_network_id then return end
+  local this_str, other_str
+  if this_network then this_str = " this headless: " .. tostring(this_network.headless) else this_str = " this: nil" end
+  if other_network then other_str = " other headless: " .. tostring(other_network.headless) else other_str = " other: nil" end
 
-  if not our_network_id then
-    game.print("connecting to other network: " .. tostring(our_network_id))
-    our_network_id = other_network_id
+  log("this id: " .. tostring(this_network_id)
+    .. " other id:" .. tostring(other_network_id)
+    .. this_str .. other_str)
+
+  local unique = "[" .. other_pole.unit_number .. "] "
+
+  if not this_network_id and not other_network_id then
+    log(unique .. "neither has network, creating new one")
+    connect_poles(this_pole, other_pole)
+    -- create network
+    this_network_id = create_catenary_network(this_pole.electric_network_id)
+    highlight(this_pole, "n: " .. tostring(this_network_id))
+    highlight(other_pole, "n: " .. tostring(this_network_id))
+    -- join both to network
+
+    -- one network must exist
+  elseif not this_network_id then
+    log(unique .. "this_pole has no network, joining other_pole's network: " .. tostring(other_network_id))
+    -- join this_pole to other_pole's network
+    connect_poles(this_pole, other_pole)
+    this_network_id = other_network_id
+    highlight(other_pole, "jt: " .. tostring(other_network_id))
+    --
+  elseif not other_network_id then
+    log(unique .. "other_pole has no network, joining this_pole's network: " .. tostring(this_network_id))
+    -- join other_pole to this_pole's network
+    connect_poles(other_pole, this_pole)
+    highlight(other_pole, "jf: " .. tostring(this_network_id))
+
+    -- both networks must exist
+  elseif this_network.headless and not other_network.headless then
+    log(unique .. "other_pole has headfull, this_pole has headless")
+    -- merge this network (headless) into other network (headfull)
+    merge_catenary_networks(other_network_id, this_network_id)
+    connect_poles(this_pole, other_pole)
+    this_network_id = other_network_id
+
+    --
+  elseif other_network.headless and not this_network.headless then
+    log(unique .. "this_pole has headfull, other_pole has headless")
+    -- merge other network (headless) into this network (headfull)
+    merge_catenary_networks(this_network_id, other_network_id)
+    connect_poles(other_pole, this_pole)
+
+    -- both networks must be headfull
+  elseif this_network_id == other_network_id then  -- should this check electric_network_id instead?
+    log(unique .. "both poles have same network: " .. tostring(this_network_id))
+    highlight(other_pole, "s: " .. tostring(other_network_id))
+    --
+  else  -- networks are not compatable (both headfull & not the same network)
+    log(unique .. "networks incompatable: " .. tostring(this_network_id) .. " ~= " .. tostring(other_network_id))
+    log("leave on_pole")
+    return
   end
 
-  if our_network_id == other_network_id then
-    game.print("connecting to pole: " .. tostring(other_pole.unit_number))
-    -- connect poles
-    local pos = this_pole.position
-    this_pole.teleport(other_pole.position)
-    this_pole.connect_neighbour(other_pole)
-    this_pole.teleport(pos)
-
-    -- power path
-    for _, rail_id in pairs(path) do
-      global.rail_number_lookup[rail_id] = our_network_id
-    end
+  -- power path
+  log("powering path: " .. tostring(this_network_id))
+  for _, rail_id in pairs(path) do
+    global.rail_number_lookup[rail_id] = this_network_id
   end
+  log("leave on_pole")
 end
 
 
@@ -220,7 +321,7 @@ end
 ---@param this_pole LuaEntity
 ---@return string|nil removal_reason string if the placement should be canceled, or nil if success
 function CatenaryManager.on_pole_placed(this_pole)
-  game.print("placed pole id: " .. this_pole.unit_number)
+  log("placed pole id: " .. this_pole.unit_number)
 
   -- figure out what direction we're facing
   ensure_pole_graphics(this_pole)
@@ -230,101 +331,34 @@ function CatenaryManager.on_pole_placed(this_pole)
   -- TODO: do this smarter
   local rails = get_adjacent_rails(this_pole, direction)
   if not rails then
-    game.print("no adjacent rail found")
+    log("no adjacent rail found")
     remove_pole_graphics(this_pole)
     return "oe-invalid-pole-position"
   end
 
-  -- should only be one of each type of rail at most
-  for _, rail in pairs(rails) do
-    if rail.type == "straight-rail" then
-      -- find_adjacent_poles, return "oe-pole-too-close" if other poles
-      local poles = RailMarcher.find_adjacent_poles(rail, {1, 0, 0}, false)
-      util.remove_from_list(poles, this_pole)
-      if #poles > 0 then
-        game.print("pole too close")
-        remove_pole_graphics(this_pole)
-        return "oe-pole-too-close"
-      end
-      -- march_rail(rail, FRONT) and march_rail(rail, BACK), returning "oe-pole-too-close" if either return quit=true
-      if RailMarcher.march_rail(rail, defines.rail_direction.front, {}, 7, on_pole, nil, this_pole)
-          or RailMarcher.march_rail(rail, defines.rail_direction.back, {}, 7, on_pole, nil, this_pole) then
-        game.print("pole too close during marching")
-        remove_pole_graphics(this_pole)
-        return "oe-pole-too-close"
-      end
-      -- if placement succeded, mark adjacent rail as powered by our catenary network
-      global.rail_number_lookup[rail.unit_number] = global.electric_network_lookup[this_pole.electric_network_id]
+  log("found rails: " .. #rails)
 
-      --
-    else  -- rail.type == "curved-rail"
-      local f, b = RailMarcher.find_adjacent_poles(rail, {1, 0, 0}, false)
-
-      -- check which end we're on, return "oe-pole-too-close" if other poles on the end we're on
-      local on_orthogonal_end = util.remove_from_list(f, this_pole)
-      if on_orthogonal_end then  -- on "FRONT" end of curved-rail
-        -- if there were other poles on this end, block placement
-        if #f > 0 then
-          game.print("pole too close")
-          remove_pole_graphics(this_pole)
-          return "oe-pole-too-close"
-        end
-        -- march in the "FRONT" direction, and if there are poles there, block placement
-        if RailMarcher.march_rail(rail, defines.rail_direction.front, {}, 7, on_pole, nil, this_pole) then
-          game.print("pole too close during marching")
-          remove_pole_graphics(this_pole)
-          return "oe-pole-too-close"
-        end
-        -- if there's a back pole, connect to it & don't march
-        if b and b[1] then
-          on_pole(b[1], {}, 4, this_pole)
-        else
-          -- march in the "BACK" direction (with less distance), no blocking because anything on that end is far enough away
-          RailMarcher.march_rail(rail, defines.rail_direction.back, {}, 3, on_pole, nil, this_pole)
-        end
-
-        --
-      else  -- on "BACK" end of curved-rail
-        -- if there were other poles on this end, block placement
-        util.remove_from_list(b, this_pole)
-        if #b > 0 then
-          game.print("pole too close")
-          remove_pole_graphics(this_pole)
-          return "oe-pole-too-close"
-        end
-        -- march in the "BACK" direction, and if there are poles there, block placement
-        if RailMarcher.march_rail(rail, defines.rail_direction.back, {}, 7, on_pole, nil, this_pole) then
-          game.print("pole too close during marching")
-          remove_pole_graphics(this_pole)
-          return "oe-pole-too-close"
-        end
-        -- if there's a front pole, connect to it & don't march
-        if f and f[1] then
-          on_pole(f[1], {}, 4, this_pole)
-        else
-          -- march in the "FRONT" direction (with less distance), no blocking because anything on that end is far enough away
-          RailMarcher.march_rail(rail, defines.rail_direction.front, {}, 3, on_pole, nil, this_pole)
-        end
-      end
-
-      -- if placement succeded, mark adjacent rail as powered by our catenary network
-      global.rail_number_lookup[rail.unit_number] = global.electric_network_lookup[this_pole.electric_network_id]
-    end
-  end
-
-
-  -- placement is valid, if this is a transformer, create catenary network
-  -- TODO: if a 'headless' catenary network can be created when connecting poles, make sure to properly handle merging that here
-  --        this_pole could already have a catenary network (and we cant do this b4 because we may need to cancel placement)
+  -- if this is a transformer, create catenary network
   if this_pole.name == "oe-transformer" then
-    game.print("network create pole id: " .. this_pole.unit_number)
+    log("network create pole id: " .. this_pole.unit_number)
     local catenary_id = global.electric_network_lookup[this_pole.electric_network_id]
     if not catenary_id then
-      create_catenary_network(this_pole)
-    else
-      table.insert(global.catenary_networks[catenary_id].transformers, this_pole)
-      game.print("pole added to catenary network " .. tostring(catenary_id))
+      catenary_id = create_catenary_network(this_pole.electric_network_id)
     end
+    add_transformer_to_network(global.catenary_networks[catenary_id], this_pole)
+    log("pole added to catenary network " .. tostring(catenary_id))
+  end
+
+  -- returns true if the placement is invalid
+  if RailMarcher.march_to_connect(rails, on_pole, this_pole) then
+    remove_pole_graphics(this_pole)
+    if this_pole.name == "oe-transformer" then
+      -- remove the catenary network we created (only if it's empty/unused/etc.)
+      local catenary_id = global.electric_network_lookup[this_pole.electric_network_id]
+      log("removing invalid transformer placed from network: " .. tostring(catenary_id))
+      util.remove_from_list(global.catenary_networks[catenary_id].transformers[this_pole.surface_index], this_pole)
+    end
+    return "oe-pole-too-close"
   end
 
   return nil
@@ -341,7 +375,7 @@ end
 -- handles cleanup of graphical entities & whatnot
 ---@param pole LuaEntity
 function CatenaryManager.on_pole_removed(pole)
-  game.print("on pole removed")
+  log("on pole removed")
 
   -- if a transformer was removed, remove the global data for it
   -- TODO: remove locomotive interfaces (could we just delete them? locomotive updating will do a valid check)
@@ -349,10 +383,10 @@ function CatenaryManager.on_pole_removed(pole)
   if pole.name == "oe-transformer" then
     local catenary_id = global.electric_network_lookup[pole.electric_network_id]
     if catenary_id then
-      local transformers = global.catenary_networks[catenary_id].transformers
+      local transformers = global.catenary_networks[catenary_id].transformers[pole.surface_index]
       util.remove_from_list(transformers, pole)
-      if table_size(transformers) == 0 then
-        game.print("removed catenary network " .. tostring(catenary_id))
+      --[[if table_size(transformers) == 0 then
+        log("removed catenary network " .. tostring(catenary_id))
         global.catenary_networks[catenary_id] = nil
         global.electric_network_lookup[pole.electric_network_id] = nil
         -- remove all powered rails in this network
@@ -361,7 +395,7 @@ function CatenaryManager.on_pole_removed(pole)
             global.rail_number_lookup[unit_number] = nil
           end
         end
-      end
+      end]]
     end
   end
 
@@ -415,31 +449,35 @@ end
 function CatenaryManager.update_catenary_network(existing_catenary_id, catenary_network_data)
   local cached_electric_id = catenary_network_data.electric_network_id
 
-  for _, transformer in pairs(catenary_network_data.transformers) do
-    local current_electric_id = transformer.electric_network_id
+  local has_any_transformer = false
+  for _, surface_transformers in pairs(catenary_network_data.transformers) do
+    for _, transformer in pairs(surface_transformers) do
+      has_any_transformer = true
+      local current_electric_id = transformer.electric_network_id
 
-    -- network changed
-    if current_electric_id and current_electric_id ~= cached_electric_id then
-      game.print("network changed from " .. tostring(cached_electric_id) .. " to " .. current_electric_id)
-      util.remove_from_list(catenary_network_data.transformers, transformer)
+      -- network changed
+      -- TODO: this needs to update all the rails from the old network?
+      -- aaaaaaaaaaaaaa this is painful
+      if current_electric_id and current_electric_id ~= cached_electric_id then
+        log("network changed from " .. tostring(cached_electric_id) .. " to " .. current_electric_id)
+        util.remove_from_list(catenary_network_data.transformers, transformer)
 
-      local catenary_id = global.electric_network_lookup[transformer.electric_network_id]
-      if not catenary_id then
-        catenary_id = create_catenary_network(transformer)
-      else
-        table.insert(global.catenary_networks[catenary_id].transformers, transformer)
-        game.print("pole added to catenary network " .. tostring(catenary_id))
+        local catenary_id = global.electric_network_lookup[transformer.electric_network_id]
+        if not catenary_id then
+          create_catenary_network(transformer.electric_network_id)
+        end
+        add_transformer_to_network(global.catenary_networks[catenary_id], transformer)
+        log("pole added to catenary network " .. tostring(catenary_id))
+
+        -- update network
+        CatenaryManager.recursively_update_network(catenary_id)
       end
-
-      -- update network
-      CatenaryManager.recursively_update_network(catenary_id)
     end
   end
 
-  if #catenary_network_data.transformers == 0 then
-    game.print("removing catenary network " .. tostring(existing_catenary_id))
-    global.electric_network_lookup[cached_electric_id] = nil
-    global.catenary_networks[existing_catenary_id] = nil
+  if not catenary_network_data.headless and not has_any_transformer then
+    log("marking network as headless: " .. tostring(existing_catenary_id))
+    catenary_network_data.headless = true
   end
 end
 

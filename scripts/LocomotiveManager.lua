@@ -154,9 +154,10 @@ end
 function LocomotiveManager.update_locomotive(data)
   local locomotive = data.locomotive
   local interface = data.interface
+  local surface = locomotive.surface
 
   -- get the closest rail of all the rails under this train
-  local rail_under_locomotive = locomotive.surface.get_closest(locomotive.position, locomotive.train.get_rails())
+  local rail_under_locomotive = surface.get_closest(locomotive.position, locomotive.train.get_rails())
   if not rail_under_locomotive then
     error("no rail under locomotive?")
   end
@@ -165,29 +166,30 @@ function LocomotiveManager.update_locomotive(data)
 
   -- check network
   if current_network then
-    -- if we were in a different network
-    if cached_network and cached_network ~= current_network then
-      game.print("joining new network " .. current_network)
-      local network = global.catenary_networks[current_network]
-      -- join this one instead
-      ---@diagnostic disable-next-line: need-check-nil if we have a cached network this will always be not nil
-      interface.teleport(network.transformers[1].position)
-      data.network_id = current_network
-
-      -- if we don't have a network we join the new one
-    elseif not cached_network then
-      game.print("joining network")
+    -- if we were in a different network (or no network)
+    if not cached_network or cached_network ~= current_network then
+      game.print("joining network " .. current_network)
       local network = global.catenary_networks[current_network]
       data.network_id = current_network
 
-      interface = locomotive.surface.create_entity{
-        name = "oe-locomotive-interface",
-        position = network.transformers[1].position,
-        force = locomotive.force
-      }
-      if not (interface and interface.valid) then error("creating locomotive interface failed unexpectedly") end
-      data.interface = interface
-      set_interface_power(interface, data.power_state)
+      if interface and interface.valid then  -- if we have an interface
+        if network.headless then             -- and new network is headless, destroy it
+          interface.destroy()
+        else                                 -- and new network is headfull, teleport it
+          interface.teleport(network.transformers[surface.index][1].position)
+        end
+      else                            -- if we don't have and interface
+        if not network.headless then  -- and new network is headfull, create one
+          interface = locomotive.surface.create_entity{
+            name = "oe-locomotive-interface",
+            position = network.transformers[surface.index][1].position,
+            force = locomotive.force
+          }
+          if not (interface and interface.valid) then error("creating locomotive interface failed unexpectedly") end
+          data.interface = interface
+          set_interface_power(interface, data.power_state)
+        end
+      end
     end
   elseif cached_network then  -- make sure we're not in a network
     game.print("leaving network")

@@ -89,6 +89,7 @@ RailMarcher.get_next_rail = get_next_rail
 -- finds poles next to a single rail <br>
 -- if `single` is true, return values are `LuaEntity`, else it's `LuaEntity[]`
 -- if `rail` is a curved-rail, `back_poles` is the pole on the diagonal end, else it is nil
+-- TODO: don't return poles that aren't facing the rail we're checking (for the inside of the corner of curved/straight switch thingy)
 ---@param rail LuaEntity
 ---@param color Color
 ---@param single boolean
@@ -213,7 +214,7 @@ local insert = table.insert
 ---@param filter_network catenary_network_id?  if given, ignore rails that aren't powered by this network
 ---@return boolean? quit
 local function march_rail(rail, direction, path, distance, on_pole, on_end, cb_arg, filter_network)
-  game.print(serpent.line{rail, direction, path, distance, on_pole and "on_pole", on_end and "on_end", filter_network})
+  log(serpent.line{rail, direction, path, distance, on_pole and "on_pole", on_end and "on_end", filter_network})
   local rail_lut = global.rail_number_lookup
 
   -- check LEFT, STRAIGHT, and RIGHT rails for poles
@@ -352,18 +353,18 @@ local function march_rail(rail, direction, path, distance, on_pole, on_end, cb_a
   --  pass the on_pole & on_end callbacks unchanged
 
   if straight_rail and distance > 1 then
-    game.print("  marching straight")
+    log("  marching straight")
     local quit = march_rail(straight_rail, direction, path, distance - 1, on_pole, on_end, cb_arg, filter_network)
     if quit then return quit end
   end
 
   if left_rail and distance > 4 then  -- if a rail was found, the dir and path will not be nil
-    game.print("  marching left")
+    log("  marching left")
     local quit = march_rail(left_rail, left_direction  --[[@as(integer)]], left_path  --[[@as(integer[])]], distance - 4, on_pole, on_end, cb_arg, filter_network)
     if quit then return quit end
   end
   if right_rail and distance > 4 then
-    game.print("  marching right")
+    log("  marching right")
     local quit = march_rail(right_rail, right_direction  --[[@as(integer)]], right_path  --[[@as(integer[])]], distance - 4, on_pole, on_end, cb_arg, filter_network)
     if quit then return quit end
   end
@@ -374,7 +375,93 @@ local function march_rail(rail, direction, path, distance, on_pole, on_end, cb_a
     if quit then return quit end
   end
 end
-RailMarcher.march_rail = march_rail
+--RailMarcher.march_rail = march_rail
+
+
+--- march from the given rails, for connecting a new pole to other poles
+--- TODO: don't march the same direction twice (from straight-rail and curved-rail)
+---@param rails LuaEntity[]                   the rails to march from
+---@param on_pole fun(other_pole: LuaEntity, path: integer[], distance: integer, this_pole: LuaEntity): quit: boolean? the callback to run when a pole is found
+---@param this_pole LuaEntity                 the original pole
+---@return boolean? quit                      true if the placement is invalid
+function RailMarcher.march_to_connect(rails, on_pole, this_pole)
+  for _, rail in pairs(rails) do
+    if rail.type == "straight-rail" then
+      -- find_adjacent_poles, return true if other poles
+      local poles = find_adjacent_poles(rail, {1, 0, 0}, false)
+      util.remove_from_list(poles, this_pole)
+      if #poles > 0 then
+        log("pole too close")
+        return true
+      end
+      -- march_rail(rail, FRONT) and march_rail(rail, BACK), returning true if either return quit=true
+      log("march_rail for straight rail")
+      if march_rail(rail, FRONT, {}, 7, on_pole, nil, this_pole)
+          or march_rail(rail, BACK, {}, 7, on_pole, nil, this_pole) then
+        log("pole too close during marching")
+        return true
+      end
+      -- if placement succeded, mark adjacent rail as powered by our catenary network
+      global.rail_number_lookup[rail.unit_number] = global.electric_network_lookup[this_pole.electric_network_id]
+
+      --
+    else  -- rail.type == "curved-rail"
+      local f, b = find_adjacent_poles(rail, {1, 0, 0}, false)
+
+      -- check which end we're on, return true if other poles on the end we're on
+      local on_orthogonal_end = util.remove_from_list(f, this_pole)
+      if on_orthogonal_end then  -- on "FRONT" end of curved-rail
+        -- if there were other poles on this end, block placement
+        if #f > 0 then
+          log("pole too close")
+          return true
+        end
+        -- march in the "FRONT" direction, and if there are poles there, block placement
+        log("march_rail FRONT for curved rail")
+        if march_rail(rail, FRONT, {}, 7, on_pole, nil, this_pole) then
+          log("pole too close during marching")
+          return true
+        end
+        -- if there's a back pole, connect to it & don't march
+        if b and b[1] then
+          on_pole(b[1], {}, 4, this_pole)
+        else
+          -- march in the "BACK" direction (with less distance), no blocking because anything on that end is far enough away
+          log("march_rail BACK for curved rail")
+          march_rail(rail, BACK, {}, 3, on_pole, nil, this_pole)
+        end
+
+        --
+      else  -- on "BACK" end of curved-rail
+        -- if there were other poles on this end, block placement
+        util.remove_from_list(b, this_pole)
+        if #b > 0 then
+          log("pole too close")
+          return true
+        end
+        -- march in the "BACK" direction, and if there are poles there, block placement
+        log("march_rail BACK for curved rail")
+        if march_rail(rail, BACK, {}, 7, on_pole, nil, this_pole) then
+          log("pole too close during marching")
+          return true
+        end
+        -- if there's a front pole, connect to it & don't march
+        if f and f[1] then
+          on_pole(f[1], {}, 4, this_pole)
+        else
+          -- march in the "FRONT" direction (with less distance), no blocking because anything on that end is far enough away
+          log("march_rail FRONT for curved rail")
+          march_rail(rail, FRONT, {}, 3, on_pole, nil, this_pole)
+        end
+      end
+
+      -- if placement succeded, mark adjacent rail as powered by our catenary network
+      global.rail_number_lookup[rail.unit_number] = global.electric_network_lookup[this_pole.electric_network_id]
+    end
+  end
+
+  return false
+end
 
 
 return RailMarcher
