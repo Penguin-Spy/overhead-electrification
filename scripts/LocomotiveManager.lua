@@ -8,7 +8,7 @@ local LocomotiveManager = {}
 ---@class locomotive_data
 ---@field locomotive LuaEntity The locomotive this data is for
 ---@field interface LuaEntity? The `electric-energy-interface` this locomotive is using to connect to the electrical network, or nil if not connected
----@field network_id catenary_network_id?     The id of the catenary network this locomotive is attached to, or nil if not connected
+---@field electric_network_id uint?     The id of the electric network this locomotive is attached to, or nil if not connected
 ---@field power_state number   0 = stopped, 1 = moving, 2 = braking, 3 = manual (varies)
 ---@field is_burning boolean   Is this locomotive currently powered (burner has fuel)
 
@@ -56,7 +56,7 @@ local STATE_COLORS = {
 function LocomotiveManager.on_locomotive_placed(locomotive)
   global.locomotives[locomotive.unit_number] = {
     locomotive = locomotive,
-    is_powered = false,
+    is_burning = false,
     power_state = POWER_STATE_MANUAL  -- always in manual when first placed
   }
 end
@@ -161,25 +161,26 @@ function LocomotiveManager.update_locomotive(data)
   if not rail_under_locomotive then
     error("no rail under locomotive?")
   end
-  local current_network = global.rail_number_lookup[rail_under_locomotive.unit_number]
-  local cached_network = data.network_id
+  local pole = global.pole_powering_rail[rail_under_locomotive.unit_number]
+  local current_network_id = pole and pole.valid and pole.electric_network_id or nil
+  local cached_network_id = data.electric_network_id
 
   -- check network
-  if current_network then
+  if current_network_id then
     -- if we were in a different network (or no network)
-    if not cached_network or cached_network ~= current_network then
-      game.print("joining network " .. current_network)
-      local network = global.catenary_networks[current_network]
-      data.network_id = current_network
+    if not cached_network_id or cached_network_id ~= current_network_id then
+      game.print("joining network " .. current_network_id)
+      local network = global.catenary_networks[current_network_id]
+      data.electric_network_id = current_network_id
 
       if interface and interface.valid then  -- if we have an interface
-        if network.headless then             -- and new network is headless, destroy it
-          interface.destroy()
+        if not network then                  -- and new network is headless, destroy it
+          interface.destroy(); interface = nil
         else                                 -- and new network is headfull, teleport it
           interface.teleport(network.transformers[surface.index][1].position)
         end
-      else                            -- if we don't have and interface
-        if not network.headless then  -- and new network is headfull, create one
+      else               -- if we don't have an interface
+        if network then  -- and new network is headfull, create one
           interface = locomotive.surface.create_entity{
             name = "oe-locomotive-interface",
             position = network.transformers[surface.index][1].position,
@@ -191,22 +192,18 @@ function LocomotiveManager.update_locomotive(data)
         end
       end
     end
-  elseif cached_network then  -- make sure we're not in a network
+  elseif cached_network_id then  -- make sure we're not in a network
     game.print("leaving network")
     if interface then interface.destroy() end
     interface = nil
     data.interface = nil
-    data.network_id = nil
-    --locomotive.burner.currently_burning = nil
-    -- the next if statement will remove the locomotive power
+    data.electric_network_id = nil
   end
 
   -- can't be powered, remove fuel & stop processing
   if not interface then  -- we don't really care what state the loco is in, it's not powered
     locomotive.burner.currently_burning = nil
-    --if data.is_burning then
     data.is_burning = false
-    --end
     return
   end
 

@@ -215,7 +215,7 @@ local insert = table.insert
 ---@return boolean? quit
 local function march_rail(rail, direction, path, distance, on_pole, on_end, cb_arg, filter_network)
   log(serpent.line{rail, direction, path, distance, on_pole and "on_pole", on_end and "on_end", filter_network})
-  local rail_lut = global.rail_number_lookup
+  local rail_lut = global.pole_powering_rail
 
   -- check LEFT, STRAIGHT, and RIGHT rails for poles
   --  when a pole is found (don't march past that rail)
@@ -247,7 +247,7 @@ local function march_rail(rail, direction, path, distance, on_pole, on_end, cb_a
       left_direction = direction
     end
 
-    if not filter_network or filter_network == rail_lut[rail_id] then
+    if not filter_network or filter_network == rail_lut[rail_id].electric_network_id then
       -- check for poles if no filter or filter matches
       local f, b = find_adjacent_poles(left_rail, {0, 1, 1}, true, not rail_into_curve_is_orthogonal and distance <= 3, rail_into_curve_is_orthogonal and distance <= 3)
       if not rail_into_curve_is_orthogonal then
@@ -267,7 +267,7 @@ local function march_rail(rail, direction, path, distance, on_pole, on_end, cb_a
           if quit then return quit end
         end
       end
-    elseif filter_network ~= rail_lut[rail_id] then
+    elseif filter_network ~= rail_lut[rail_id].electric_network_id then
       -- ignore this rail for on_end checks if filter doesn't match
       left_rail = nil
     end
@@ -289,7 +289,7 @@ local function march_rail(rail, direction, path, distance, on_pole, on_end, cb_a
       right_direction = direction
     end
 
-    if not filter_network or filter_network == rail_lut[rail_id] then
+    if not filter_network or filter_network == rail_lut[rail_id].electric_network_id then
       -- check for poles if no filter or filter matches
       local f, b = find_adjacent_poles(right_rail, {1, 1, 0}, true, not rail_into_curve_is_orthogonal and distance <= 3, rail_into_curve_is_orthogonal and distance <= 3)
       if not rail_into_curve_is_orthogonal then
@@ -309,7 +309,7 @@ local function march_rail(rail, direction, path, distance, on_pole, on_end, cb_a
           if quit then return quit end
         end
       end
-    elseif filter_network ~= rail_lut[rail_id] then
+    elseif filter_network ~= rail_lut[rail_id].electric_network_id then
       -- ignore this rail for on_end checks if filter doesn't match
       right_rail = nil
     end
@@ -330,7 +330,7 @@ local function march_rail(rail, direction, path, distance, on_pole, on_end, cb_a
       end
     end
 
-    if not filter_network or filter_network == rail_lut[rail_id] then
+    if not filter_network or filter_network == rail_lut[rail_id].electric_network_id then
       -- check for poles if no filter or filter matches
       local p = find_adjacent_poles(straight_rail, {0, 1, 0}, true)
       if p then
@@ -340,7 +340,7 @@ local function march_rail(rail, direction, path, distance, on_pole, on_end, cb_a
           if quit then return quit end
         end
       end
-    elseif filter_network ~= rail_lut[rail_id] then
+    elseif filter_network ~= rail_lut[rail_id].electric_network_id then
       -- ignore this rail for on_end checks if filter doesn't match
       straight_rail = nil
     end
@@ -401,8 +401,8 @@ function RailMarcher.march_to_connect(rails, on_pole, this_pole)
         log("pole too close during marching")
         return true
       end
-      -- if placement succeded, mark adjacent rail as powered by our catenary network
-      global.rail_number_lookup[rail.unit_number] = global.electric_network_lookup[this_pole.electric_network_id]
+      -- if placement succeded, mark adjacent rail as powered by this pole
+      global.pole_powering_rail[rail.unit_number] = this_pole
 
       --
     else  -- rail.type == "curved-rail"
@@ -455,8 +455,8 @@ function RailMarcher.march_to_connect(rails, on_pole, this_pole)
         end
       end
 
-      -- if placement succeded, mark adjacent rail as powered by our catenary network
-      global.rail_number_lookup[rail.unit_number] = global.electric_network_lookup[this_pole.electric_network_id]
+      -- if placement succeded, mark adjacent rail as powered by this pole
+      global.pole_powering_rail[rail.unit_number] = this_pole
     end
   end
 

@@ -135,17 +135,6 @@ local function on_tick(event)
     update_locomotive(locomotive_data)
   end
 
-  -- have to queue the poles in case the network is split when a pole is removed
-  for i, pole in pairs(global.queued_network_changes) do
-    if pole.valid then
-      game.print("queued recursive update of " .. pole.unit_number)
-      CatenaryManager.recursively_update_network(global.electric_network_lookup[pole.electric_network_id])
-    else
-      game.print("queued recursive update of not valid pole.")
-    end
-    global.queued_network_changes[i] = nil
-  end
-
   for _, train in pairs(global.queued_train_state_changes.next_tick) do
     LocomotiveManager.on_train_changed_state(train)
   end
@@ -172,15 +161,15 @@ script.on_nth_tick(30, function(event)
         radius = 32
       }
       for _, rail in pairs(all_rails) do
-        local id = global.rail_number_lookup[rail.unit_number]
-        if id then
+        local pole = global.pole_powering_rail[rail.unit_number]
+        if pole and pole.valid then
           rendering.draw_circle{
             color = {0, 1, 1}, radius = 0.5, width = 2, filled = false,
             target = rail, surface = rail.surface, players = {player},
             time_to_live = 31
           }
           rendering.draw_text{
-            color = {0, 1, 1}, text = id,
+            color = {0, 1, 1}, text = pole.electric_network_id,
             target = rail, surface = rail.surface, players = {player},
             time_to_live = 31
           }
@@ -208,28 +197,27 @@ end)
 local function initalize()
   ---@type locomotive_data[] A mapping of unit_number to locomotive data
   global.locomotives = global.locomotives or {}
-  ---@type catenary_network_data[] A mapping of network_id to catenary network data
+
+  ---@type table<uint?, LuaEntity> a mapping of a rail's `unit_number` to the `LuaEntity` of the pole powering it
+  global.pole_powering_rail = global.pole_powering_rail or {}
+
+  ---@type table<uint?, catenary_network_data?> A mapping of `electric_network_id` to catenary network data <br>
+  --- if an electric network doesn't have a transformer on any surface (i.e. it's headless), this will be nil
   global.catenary_networks = global.catenary_networks or {}
-  global.next_catenary_network_id = 1
+  --- note that the key is of type integer, it cannot be nil (the ? is just there because otherwise sumneko-lua doesn't properly infer the type from indexing)
 
-  -- map of electric_network_id to catenary network_id <br>
-  -- used for determining what network a pole is in
-  -- updated when electric network of transformer changes
-  ---@type { [uint]: catenary_network_id? }
-  global.electric_network_lookup = global.electric_network_lookup or {}
+  -- is this necessary? no event for using copper wire or power switches to connect/disconnect networks so i think so
+  ---@type LuaEntity[] a list of all transformers. used for checking when their electric_network_id changes & updating which catenary network they're in
+  global.transformers = global.transformers or {}
 
-  -- map of rail LuaEntity.unit_number to catenary network_id
-  -- used for determining locomotive power
-  -- updated when poles are placed/removed
-  ---@type { [uint]: catenary_network_id? }
-  global.rail_number_lookup = global.rail_number_lookup or {}
-
-  -- list of poles who's electric network may have changed and needs checking
-  -- used to update pole catenary networks after one is destroyed
-  global.queued_network_changes = global.queued_network_changes or {}
+  -- mapping of `unit_number` to 8-way direction
+  ---@type table<uint, integer>
+  global.pole_directions = global.pole_directions or {}
 
   -- ew.
+  -- TODO: update a whole train at a time, use train state & speed instead of driving state
   global.queued_train_state_changes = global.queued_train_state_changes or {next_tick = {}, next_next_tick = {}}
+
 
   -- mapping from player index to player's "show rail power visualization" toggle
   ---@type { [uint]: boolean? }
@@ -269,9 +257,9 @@ show_rails = function(surface)
     type = {"straight-rail", "curved-rail"}
   }
   for _, rail in pairs(all_rails) do
-    local id = global.rail_number_lookup[rail.unit_number]
-    if id then
-      highlight(rail, id, {0, 1, 1})
+    local pole = global.pole_powering_rail[rail.unit_number]
+    if pole then
+      highlight(rail, pole.electric_network_id, {0, 1, 1})
     end
   end
 end
