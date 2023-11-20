@@ -58,12 +58,16 @@ local function get_adjacent_rails(pole, direction)
   else  -- no direction given, search for a rail clockwise (orthogonal first, then diagonal)
     for iter_dir = 0, 6, 2 do
       local rails, found_dir = get_adjacent_rails(pole, iter_dir)
-      if rails then return rails, found_dir end
+      if #rails > 0 then
+        return rails, found_dir
+      end
     end
     if not is_big(pole) then  -- if no orthogonal dir found (and not a big pole), try diagonal
       for iter_dir = 1, 7, 2 do
         local rails, found_dir = get_adjacent_rails(pole, iter_dir)
-        if rails then return rails, found_dir end
+        if #rails > 0 then
+          return rails, found_dir
+        end
       end
     end
     log("no direction given, all 8 searched and no found")
@@ -78,12 +82,11 @@ end
 
 
 -- places the appropriate graphics entity for that direction at the position of the pole
----@param pole LuaEntity doesn't actually need to be a pole, just used for surface & position & whatnot
----@param name string the name of the pole
+---@param pole LuaEntity              the pole to create graphics for
 ---@param direction defines.direction directions for graphics to face
-local function create_graphics_for_pole(pole, name, direction)
+local function create_pole_graphics(pole, direction)
   local graphics_entity = pole.surface.create_entity{
-    name = name .. "-graphics",
+    name = pole.name .. "-graphics",
     position = pole.position,
     direction = direction,  -- factorio rounds down for 4-direciton entities apparently, cool!
     force = pole.force,
@@ -102,38 +105,14 @@ local function remove_pole_graphics(pole)
   end
 end
 
--- finds the graphics entity for the pole that's used for graphics
+-- creates the graphics entity if its missing
 ---@param pole LuaEntity
----@return LuaEntity?
-local function get_pole_graphics(pole)
-  return pole.surface.find_entity(pole.name .. "-graphics", pole.position)
-end
-
--- finds the graphics entity for the pole that's used for graphics, or creates it if it's missing
----@param pole LuaEntity
----@return LuaEntity
-local function ensure_pole_graphics(pole)
-  local graphics_entity = get_pole_graphics(pole)
-  -- if we don't have a graphics_entity, make it facing the first rail clockwise (or north if no rails exist)
+---@param direction defines.direction
+local function ensure_pole_graphics(pole, direction)
+  local graphics_entity = pole.surface.find_entity(pole.name .. "-graphics", pole.position)
   if not graphics_entity then
-    local _, direction = get_adjacent_rails(pole)
-    if not direction then
-      direction = defines.direction.north
-    end
-    graphics_entity = create_graphics_for_pole(pole, pole.name, direction)
+    graphics_entity = create_pole_graphics(pole, direction)
   end
-  return graphics_entity
-end
-
--- returns the 8-way direction of the catenary pole
----@param pole LuaEntity
----@return defines.direction
-local function get_direction(pole)
-  local graphics_entity = get_pole_graphics(pole)
-  if not graphics_entity then return defines.direction.north end
-  -- 8-way directions are done with variations, 4 way is done with direction.
-  return is_big(pole) and ((graphics_entity.direction) % 8)
-      or (graphics_entity.graphics_variation - 1)
 end
 
 
@@ -186,16 +165,8 @@ end
 
 
 
--- 2? versions of this needed:
---   find first pole, connect arg pole to it, stop marching entirely
---   find all poles that match arg pole's network, connect to them & mark rails along path as powered
--- probably could add a check for if arg pole has a network & switch from first to 2nd mode
--- only need 1 version:
---  if arg pole doesn't have a network, don't check if found pole matches
---  otherwise do check
---  if not arg_pole.electric_network_id or found_pole.electric_network_id == arg_pole.electric_network_id then
---   connect the poles via teleport
---   mark all rails on the path as powered by the catenary network for arg_pole.electric_network_id
+-- if both poles have compatable networks (both dont have transformers and are different), <br>
+-- connect them by teleporting and mark all rails along the path as powered by `this_pole`
 ---@param other_pole LuaEntity
 ---@param path integer[]
 ---@param distance integer
@@ -237,19 +208,16 @@ end
 function CatenaryManager.on_pole_placed(this_pole)
   log("placed pole id: " .. this_pole.unit_number)
 
-  -- figure out what direction we're facing
-  ensure_pole_graphics(this_pole)
-  local direction = get_direction(this_pole)
-
-  -- get the adjacent rail for searching for neighbors
-  local rails = get_adjacent_rails(this_pole, direction)
-  if not rails then
+  -- figure out what direction we're facing and get the adjacent rail for searching for neighbors
+  local rails, direction = get_adjacent_rails(this_pole, global.pole_directions[this_pole.unit_number])
+  if not rails or #rails == 0 or not direction then
     log("no adjacent rail found")
     remove_pole_graphics(this_pole)
     return "oe-invalid-pole-position"
   end
 
-  log("found rails: " .. #rails)
+  -- the graphics may not have been created if this pole was placed as a ghost of itself, not of its placer
+  ensure_pole_graphics(this_pole, direction)
 
   -- if this is a transformer, create catenary network
   local network
@@ -261,7 +229,8 @@ function CatenaryManager.on_pole_placed(this_pole)
   end
 
   -- returns true if the placement is invalid
-  if RailMarcher.march_to_connect(rails, on_pole, this_pole) then
+  local quit = RailMarcher.march_to_connect(rails, on_pole, this_pole)
+  if quit then
     remove_pole_graphics(this_pole)
     if this_pole.name == "oe-transformer" then
       -- remove the transformer from the network
@@ -281,11 +250,32 @@ function CatenaryManager.on_rail_placed(rail)
 
 end
 
+-- reconnects `pole` to all its neighboring poles, ignoring `ignore_pole`
+---@param pole LuaEntity
+---@param ignore_pole LuaEntity
+local function reconnect(pole, ignore_pole)
+  -- unpower all rails powered by the other pole
+  for rail_id, powering_pole in pairs(global.pole_powering_rail) do
+    if powering_pole == pole then
+      global.pole_powering_rail[rail_id] = nil
+    end
+  end
+
+  -- march to connect from the other pole
+  local rails, direction = get_adjacent_rails(pole, global.pole_directions[pole.unit_number])
+  if not rails or #rails == 0 or not direction then
+    error("neighbor pole in invalid position unexpectedly")
+  end
+  local quit = RailMarcher.march_to_connect(rails, on_pole, pole, ignore_pole)
+  if quit then
+    error("neighbor pole in invalid connection position unexpectedly")
+  end
+end
 
 -- handles cleanup of graphical entities & whatnot
 ---@param this_pole LuaEntity
 function CatenaryManager.on_pole_removed(this_pole)
-  log("on pole removed")
+  log("on pole removed " .. this_pole.unit_number)
 
   -- if a transformer was removed, remove the global data for it
   -- TODO: remove locomotive interfaces (could we just delete them? locomotive updating will do a valid check)
@@ -296,23 +286,23 @@ function CatenaryManager.on_pole_removed(this_pole)
     -- the update_catenary_network function should remove the data if this was the last transformer
   end
 
-  -- update neighbors
-  local neighbors = this_pole.neighbours.copper
-  for _, other_pole in pairs(neighbors) do
-    if identify.is_pole(other_pole) then
-      -- TODO: unpower this rail, disconnect this pole from other pole, march from other to unpower dead ends, then march from other to connect
-    end
-  end
-
-  -- do this after we call get_direction
-  remove_pole_graphics(this_pole)
-
-  -- TODO: not this, do rail marching to update which poles are powering the rails
+  -- unpower all rails powered by this pole
   for rail_id, powering_pole in pairs(global.pole_powering_rail) do
     if powering_pole == this_pole then
       global.pole_powering_rail[rail_id] = nil
     end
   end
+
+  -- update neighbors
+  local neighbors = this_pole.neighbours.copper
+  this_pole.disconnect_neighbour()  -- disconnect all poles first to properly split electric networks
+  for _, other_pole in pairs(neighbors) do
+    if identify.is_pole(other_pole) then
+      reconnect(other_pole, this_pole)
+    end
+  end
+
+  remove_pole_graphics(this_pole)
 end
 
 
@@ -335,7 +325,6 @@ function CatenaryManager.handle_placer(entity, placer_target)
   elseif placer_target == "oe-transformer" then
     direction = (entity.direction + 4) % 8  -- train stop directions are opposite rail signals.
   end
-  create_graphics_for_pole(entity, placer_target, direction)
 
   local new_entity = entity.surface.create_entity{
     name = placer_target,
@@ -347,6 +336,7 @@ function CatenaryManager.handle_placer(entity, placer_target)
   entity.destroy()
   if not new_entity or not new_entity.valid then error("creating catenary entity " .. placer_target .. " failed unexpectedly") end
 
+  create_pole_graphics(new_entity, direction)
   global.pole_directions[new_entity.unit_number] = direction
   return new_entity
 end
