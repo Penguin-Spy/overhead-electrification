@@ -9,6 +9,7 @@ local const                      = require 'constants'
 ---@field train LuaTrain                    the LuaTrain for this data
 ---@field electric_front_movers LuaEntity[] an array of just the electric locomotive front_movers
 ---@field electric_back_movers LuaEntity[]  an array of just the electric locomotive back_movers
+---@field bucket integer which train bucket this train_data is in
 
 -- Global table storage for individual locomotive data
 ---@class locomotive_data
@@ -66,6 +67,16 @@ local train_states = {
   [defines.train_state.wait_station] = "WAIT_STATION",
 }
 
+local function remove_train(train_id)
+  -- may have already been removed (if splitting a train)
+  if not global.trains[train_id] then return end
+
+  local bucket = global.trains[train_id].bucket
+  global.trains[train_id] = nil
+  log("  removing from bucket " .. bucket)
+  util.remove_from_list(global.train_buckets[bucket], train_id)
+end
+
 -- [[ Event handlers ]]
 
 -- handles the `on_train_created` event
@@ -75,10 +86,10 @@ function TrainManager.on_train_created(event)
 
   -- remove entries for merged trains
   if event.old_train_id_1 then
-    global.trains[event.old_train_id_1] = nil
+    remove_train(event.old_train_id_1)
   end
   if event.old_train_id_2 then
-    global.trains[event.old_train_id_2] = nil
+    remove_train(event.old_train_id_2)
   end
 
   local train = event.train
@@ -106,8 +117,16 @@ function TrainManager.on_train_created(event)
     global.trains[train.id] = {
       train = train,
       electric_front_movers = electric_front_movers,
-      electric_back_movers = electric_back_movers
+      electric_back_movers = electric_back_movers,
+      bucket = global.train_next_bucket
     }
+    log("adding train to bucket " .. global.train_next_bucket)
+    table.insert(global.train_buckets[global.train_next_bucket], train.id)
+    global.train_next_bucket = global.train_next_bucket + 1
+    if global.train_next_bucket > #global.train_buckets then
+      global.train_next_bucket = 1
+    end
+    log("next bucket=" .. global.train_next_bucket)
   end
 end
 
@@ -158,7 +177,7 @@ end
 function TrainManager.on_rolling_stock_removed(entity)
   if #entity.train.carriages == 1 then
     log("[" .. entity.train.id .. "] removed as last locomotive was removed")
-    global.trains[entity.train.id] = nil
+    remove_train(entity.train.id)
   end
 end
 

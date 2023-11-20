@@ -119,27 +119,29 @@ script.on_event({
   defines.events.script_raised_destroy
 }, on_entity_destroyed)
 
+-- this is OK as a non-global because it still initalizes to the same value for everyone, and I keep it up to date with the event handler
+local TRAIN_UPDATE_RATE = settings.global["oe-train-update-rate"].value  --[[@as integer]]
 
--- todo: use event.tick, modulo, and a limit number to only update n locomotives per tick
----      make the limit a map setting
----@param event EventData.on_tick
-local function on_tick(event)
+script.on_event(defines.events.on_tick, function(event)
   -- ew, really need to find a set of suitable event handlers for this if possible
+  -- pole created/destroyed + linked game control for "build" to detect copper wire usage
+  --  what about power switches toggling?
   for id, catenary_network_data in pairs(global.catenary_networks) do
     CatenaryManager.update_catenary_network(id, catenary_network_data)
   end
 
-  for _, train_data in pairs(global.trains) do
-    TrainManager.update_train(train_data)
+  -- update each train every N ticks, spread multiple trains across those N ticks
+  for _, train_id in pairs(global.train_buckets[event.tick % TRAIN_UPDATE_RATE + 1]) do
+    TrainManager.update_train(global.trains[train_id])
   end
 
+  -- handle train state changes every tick because it's infrequent & not performance intensive
   for _, train_data in pairs(global.next_tick_train_state_changes) do
     TrainManager.update_train_power_state(train_data)
   end
   global.next_tick_train_state_changes = global.second_next_tick_train_state_changes
   global.second_next_tick_train_state_changes = {}
-end
-script.on_nth_tick(1, on_tick)
+end)
 
 script.on_event(defines.events.on_train_changed_state, TrainManager.on_train_state_changed)
 script.on_event(defines.events.on_train_created, TrainManager.on_train_created)
@@ -174,7 +176,6 @@ script.on_nth_tick(30, function(event)
   end
 end)
 
-
 script.on_event(defines.events.on_lua_shortcut, function(event)
   if event.prototype_name == "oe-toggle-powered-rail-view" then
     local player = game.get_player(event.player_index)
@@ -185,6 +186,33 @@ script.on_event(defines.events.on_lua_shortcut, function(event)
 end)
 
 
+-- delete old buckets and recreate them
+local function rebucket_trains()
+  ---@type (uint[])[] list of train ids to update on each tick
+  global.train_buckets = {}
+  for i = 1, TRAIN_UPDATE_RATE do
+    global.train_buckets[i] = {}
+  end
+  global.train_next_bucket = 1
+
+  -- re-add all trains to the buckets
+  for train_id, train_data in pairs(global.trains) do
+    table.insert(global.train_buckets[global.train_next_bucket], train_id)
+    train_data.bucket = global.train_next_bucket
+    global.train_next_bucket = global.train_next_bucket + 1
+    if global.train_next_bucket > #global.train_buckets then
+      global.train_next_bucket = 1
+    end
+  end
+end
+
+-- update the TRAIN_UPDATE_RATE value & recompute the buckets
+script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
+  if event.setting == "oe-train-update-rate" then
+    TRAIN_UPDATE_RATE = settings.global["oe-train-update-rate"].value  --[[@as integer]]
+    rebucket_trains()
+  end
+end)
 
 -- [[ Initalization ]] --
 
@@ -195,6 +223,9 @@ local function initalize()
 
   ---@type table<uint, train_data> a list of trains that have at least one electric locomotive
   global.trains = global.trains or {}
+
+  -- initalizes global.train_buckets and global.train_next_bucket
+  rebucket_trains()
 
   ---@type table<uint?, LuaEntity> a mapping of a rail's `unit_number` to the `LuaEntity` of the pole powering it
   global.pole_powering_rail = global.pole_powering_rail or {}
@@ -219,16 +250,7 @@ local function initalize()
   global.show_rail_power = global.show_rail_power or {}
 end
 
--- called every time the game loads. cannot access the game object or global table
-local function loadalize()
-
-end
-
-script.on_init(function()
-  initalize()
-  loadalize()
-end)
-script.on_load(loadalize)
+script.on_init(initalize)
 script.on_configuration_changed(initalize)
 
 
@@ -238,8 +260,7 @@ script.on_configuration_changed(initalize)
 ---@param entity LuaEntity
 ---@param text string|number
 ---@param color table?
----@diagnostic disable-next-line: lowercase-global
-function highlight(entity, text, color)
+local function highlight(entity, text, color)
   ---@diagnostic disable-next-line: assign-type-mismatch
   rendering.draw_circle{color = color or {1, 0.7, 0, 1}, radius = 0.5, width = 2, filled = false, target = entity, surface = entity.surface, only_in_alt_mode = true}
   rendering.draw_text{color = color or {1, 0.7, 0, 1}, text = text, target = entity, surface = entity.surface, only_in_alt_mode = true}
@@ -267,7 +288,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
   if command.parameter then
     options = util.split(command.parameter, " ")
   else
-    player.print("commands: all, march, find_poles, next_rail, update_train, show_rails, clear, initalize")
+    player.print("commands: all, march, find_poles, next_rail, update_train, show_rails, clear, initalize, rebucket_trains")
     return
   end
 
@@ -278,15 +299,11 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
   elseif subcommand == "initalize" then
     initalize()
     return
-  end
-
-  --[[if subcommand == "update_loco" then
-    update_locomotive(global.locomotives[player.selected.unit_number])
+  elseif subcommand == "rebucket_trains" then
+    rebucket_trains()
     return
-  end]]
-
-  if subcommand == "update_train" then
-    TrainManager.on_train_changed_state(player.selected.train)
+  elseif subcommand == "update_train" then
+    TrainManager.update_train(global.trains[player.selected.train.id])
     return
   end
 
