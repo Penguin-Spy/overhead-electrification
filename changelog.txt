@@ -1,4 +1,14 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.0.2
+Date: 18.11.2023
+  Features:
+    - Only locomotives that are accelerating consume power (including in manual mode)
+    - Connecting catenary lines around curves
+    - Multiple transformers per network, works with multi-surface electric networks
+    - Rail power visualization & shortcut to toggle it
+    - Update all locomotives in a train as a group
+
+---------------------------------------------------------------------------------------------------
 Version: 0.0.1
 Date: 17.07.2023
   Features:

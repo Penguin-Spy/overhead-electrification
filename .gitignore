@@ -2,3 +2,6 @@
 # when opening the workspace, other people will have to choose "Configure workspace for Factorio" or whatever the notification says
 # git update-index --assume-unchanged .vscode/settings.json
 .vscode/settings.json
+
+# temp
+graphics/

@@ -5,14 +5,12 @@
 
 util = require 'util'
 RailMarcher = require 'scripts.RailMarcher'
+identify = require 'scripts.identify'  ---@diagnostic disable-line: lowercase-global
+
 local CatenaryManager = require 'scripts.CatenaryManager'
-local LocomotiveManager = require 'scripts.LocomotiveManager'
-local update_locomotive = LocomotiveManager.update_locomotive
+local TrainManager = require 'scripts.TrainManager'
 
 if script.active_mods["gvv"] then require("__gvv__.gvv")() end
-
---- debug, should move later
-local show_rails
 
 ---@param entity LuaEntity
 ---@param event EventData.on_built_entity|EventData.on_robot_built_entity|EventData.script_raised_built
@@ -40,17 +38,15 @@ local function cancel_entity_creation(entity, event, reason)
     end
   end  -- or put it back in the robot
   if not picked_up and item and event.robot then
-    local inventory = event.robot.get_inventory(defines.inventory.robot_cargo)
-    ---@diagnostic disable-next-line need-check-nil
+    local inventory = event.robot.get_inventory(defines.inventory.robot_cargo)  --[[@as LuaInventory]]
     picked_up = inventory.insert(item) > 0
   end  -- or just spill it
   if not picked_up and item then
     entity.surface.spill_item_stack(
       entity.position, item,
-      true,          -- to_be_looted (picked up when walked over)
-      ---@diagnostic disable-next-line: param-type-mismatch
-      entity.force,  -- mark for deconstruction by this force
-      false)         -- don't go on belts
+      true,                              -- to_be_looted (picked up when walked over)
+      entity.force  --[[@as LuaForce]],  -- mark for deconstruction by this force
+      false)                             -- don't go on belts
   end
   if entity and entity.valid then
     entity.destroy()
@@ -67,15 +63,13 @@ local function on_entity_created(event)
 
   -- name of the entity this placer is placing, or nil if not a placer
   local placer_target = string.match(entity.name, "^(oe%-.-)%-placer$")
-
   if placer_target then  -- all placers are for catenary poles
     entity = CatenaryManager.handle_placer(entity, placer_target)
   end
-
   -- the real entity actually got built, run on_build code for them
 
   -- catenary poles: check if valid space, check if can create pole connections
-  if CatenaryManager.is_pole(entity) then
+  if identify.is_pole(entity) then
     local reason = CatenaryManager.on_pole_placed(entity)
     if reason then
       cancel_entity_creation(entity, event, {"cant-build-reason." .. reason})
@@ -87,7 +81,7 @@ local function on_entity_created(event)
 
     -- locomotive: create locomotives table entry
   elseif entity.name == "oe-electric-locomotive" then
-    LocomotiveManager.on_locomotive_placed(entity)
+    TrainManager.on_locomotive_placed(entity)
   end
 end
 
@@ -104,12 +98,16 @@ script.on_event({
 local function on_entity_destroyed(event)
   local entity = event.entity
 
-  if CatenaryManager.is_pole(entity) then
+  if identify.is_pole(entity) then
     CatenaryManager.on_pole_removed(entity)
   elseif entity.type == "straight-rail" or entity.type == "curved-rail" then
     CatenaryManager.on_rail_removed(entity)
-  elseif entity.name == "oe-electric-locomotive" then
-    LocomotiveManager.on_locomotive_removed(entity)
+  elseif identify.is_locomotive(entity) then
+    TrainManager.on_locomotive_removed(entity)
+  end
+
+  if identify.is_rolling_stock(entity) then
+    TrainManager.on_rolling_stock_removed(entity)
   end
 end
 
@@ -131,26 +129,23 @@ local function on_tick(event)
     CatenaryManager.update_catenary_network(id, catenary_network_data)
   end
 
-  for _, locomotive_data in pairs(global.locomotives) do
-    update_locomotive(locomotive_data)
+  for _, train_data in pairs(global.trains) do
+    TrainManager.update_train(train_data)
   end
 
-  for _, train in pairs(global.queued_train_state_changes.next_tick) do
-    LocomotiveManager.on_train_changed_state(train)
+  for _, train_data in pairs(global.next_tick_train_state_changes) do
+    TrainManager.update_train_power_state(train_data)
   end
-  global.queued_train_state_changes.next_tick = global.queued_train_state_changes.next_next_tick
-  global.queued_train_state_changes.next_next_tick = {}
+  global.next_tick_train_state_changes = global.second_next_tick_train_state_changes
+  global.second_next_tick_train_state_changes = {}
 end
+script.on_nth_tick(1, on_tick)
 
---script.on_event(defines.events.on_tick, on_tick)
-script.on_nth_tick(2, on_tick)
+script.on_event(defines.events.on_train_changed_state, TrainManager.on_train_state_changed)
+script.on_event(defines.events.on_train_created, TrainManager.on_train_created)
 
 
--- the train.riding_state isn't accurate when this event fires if the train changed to on_the_path :(
-script.on_event(defines.events.on_train_changed_state, function(event  --[[@as EventData.on_train_changed_state]])
-  table.insert(global.queued_train_state_changes.next_next_tick, event.train)
-end)
-
+-- [[ Rail power visualization ]]
 
 script.on_nth_tick(30, function(event)
   for _, player in pairs(game.connected_players) do
@@ -195,8 +190,11 @@ end)
 
 -- called when added to a save, game start, or on_configuration_changed
 local function initalize()
-  ---@type locomotive_data[] A mapping of unit_number to locomotive data
+  ---@type table<uint, locomotive_data> A mapping of unit_number to locomotive data
   global.locomotives = global.locomotives or {}
+
+  ---@type table<uint, train_data> a list of trains that have at least one electric locomotive
+  global.trains = global.trains or {}
 
   ---@type table<uint?, LuaEntity> a mapping of a rail's `unit_number` to the `LuaEntity` of the pole powering it
   global.pole_powering_rail = global.pole_powering_rail or {}
@@ -206,18 +204,15 @@ local function initalize()
   global.catenary_networks = global.catenary_networks or {}
   --- note that the key is of type integer, it cannot be nil (the ? is just there because otherwise sumneko-lua doesn't properly infer the type from indexing)
 
-  -- is this necessary? no event for using copper wire or power switches to connect/disconnect networks so i think so
-  ---@type LuaEntity[] a list of all transformers. used for checking when their electric_network_id changes & updating which catenary network they're in
-  global.transformers = global.transformers or {}
-
   -- mapping of `unit_number` to 8-way direction
   ---@type table<uint, integer>
   global.pole_directions = global.pole_directions or {}
 
-  -- ew.
-  -- TODO: update a whole train at a time, use train state & speed instead of driving state
-  global.queued_train_state_changes = global.queued_train_state_changes or {next_tick = {}, next_next_tick = {}}
-
+  -- riding_state needs 1 tick to update, or 2 if the train state changed to on_the_path
+  ---@type train_data[]
+  global.next_tick_train_state_changes = global.next_tick_train_state_changes or {}
+  ---@type train_data[]
+  global.second_next_tick_train_state_changes = global.second_next_tick_train_state_changes or {}
 
   -- mapping from player index to player's "show rail power visualization" toggle
   ---@type { [uint]: boolean? }
@@ -251,7 +246,7 @@ function highlight(entity, text, color)
 end
 
 ---@param surface LuaSurface
-show_rails = function(surface)
+local function show_rails(surface)
   rendering.clear(script.mod_name)
   local all_rails = surface.find_entities_filtered{
     type = {"straight-rail", "curved-rail"}
@@ -272,7 +267,7 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
   if command.parameter then
     options = util.split(command.parameter, " ")
   else
-    player.print("commands: all, march, find_poles, next_rail, update_loco, update_train, show_rails, clear, initalize")
+    player.print("commands: all, march, find_poles, next_rail, update_train, show_rails, clear, initalize")
     return
   end
 
@@ -285,13 +280,13 @@ commands.add_command("oe-debug", {"mod-name.overhead-electrification"}, function
     return
   end
 
-  if subcommand == "update_loco" then
+  --[[if subcommand == "update_loco" then
     update_locomotive(global.locomotives[player.selected.unit_number])
     return
-  end
+  end]]
 
   if subcommand == "update_train" then
-    LocomotiveManager.on_train_changed_state(player.selected.train)
+    TrainManager.on_train_changed_state(player.selected.train)
     return
   end
 

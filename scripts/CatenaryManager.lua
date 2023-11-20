@@ -17,16 +17,6 @@ local CatenaryManager = {}
   basically clockwise with the pole on the inside, 0 = 3-o-clock
 ]]
 
-
--- checks if an entity is a catenary pole
----@param entity LuaEntity
----@return boolean
-local function is_pole(entity)
-  local name = entity.name
-  return name == "oe-catenary-pole" or name == "oe-transformer"  -- or name == "oe-catenary-double-pole" or name == "oe-catenary-pole-rail-signal", etc
-end
-CatenaryManager.is_pole = is_pole
-
 -- checks if this entity is a 2x2 pole (only 4 rotations)
 ---@param entity LuaEntity
 local function is_big(entity)
@@ -309,7 +299,7 @@ function CatenaryManager.on_pole_removed(this_pole)
   -- update neighbors
   local neighbors = this_pole.neighbours.copper
   for _, other_pole in pairs(neighbors) do
-    if is_pole(other_pole) then
+    if identify.is_pole(other_pole) then
       -- TODO: unpower this rail, disconnect this pole from other pole, march from other to unpower dead ends, then march from other to connect
     end
   end
