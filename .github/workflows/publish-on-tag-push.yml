@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@master
-    - name: Publish skins-factored
+    - name: Publish overhead-electrification
       uses: Penguin-Spy/factorio-mod-portal-publish@main
       with:
         factorio-api-key: ${{ secrets.FACTORIO_MOD_API_KEY }}

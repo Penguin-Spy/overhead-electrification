@@ -17,6 +17,7 @@ Translations are also welcome, although the mod is in alpha so the stuff you nee
   - [x] AAI Industry (adjust recipes)
   - Krastorio (i haven't played it but i've heard it changes vehicle stats significantly)
   - BZ materials (adjust recipes to use the materials)
+  - planetfall's resource mods
   - Nullius
   - idk maybe Bobs/Angels if somebody asks nicely
 - compat with train mods:
@@ -26,3 +27,10 @@ Translations are also welcome, although the mod is in alpha so the stuff you nee
 - other compat:
   - [x] Picker Dollies (make transformer & catenary poles not movable (it doesn't work anyways but gives a weird error))
   - [Fluidic Power](https://mods.factorio.com/mod/FluidicPower)? that'd be cool
+
+# License
+Copyright © Penguin_Spy 2023  
+
+This Source Code Form is subject to the terms of the Mozilla Public
+License, v. 2.0. If a copy of the MPL was not distributed with this
+file, You can obtain one at https://mozilla.org/MPL/2.0/.
