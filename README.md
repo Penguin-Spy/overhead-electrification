@@ -1,5 +1,5 @@
 > **Warning**  
-> THIS MOD IS IN ALPHA, DO NOT INSTALL IT INTO AN ACTUAL WORLD!! it's just here for testing & so i can snag the mod id.  
+> THIS MOD IS IN BETA, DO NOT INSTALL IT INTO AN ACTUAL WORLD!! it's just here for testing.  
 > backwards support/compatibility is not guaranteed for this version (i'm serious it could break stuff in a lot of weird ways)  
 
 # Overhead Electrification (Realistic Electric Trains)
@@ -13,14 +13,16 @@ Translations are also welcome, although the mod is in alpha so the stuff you nee
 - regenerative braking (wow!)
 - overlay for viewing what rails are powered
 - compat with various overhaul mods:
-  - Space Exploration (space elevator, space rails)
-  - AAI Industry (adjust recipes)
+  - Space Exploration (space elevator, space rails, spaceship)
+  - [x] AAI Industry (adjust recipes)
   - Krastorio (i haven't played it but i've heard it changes vehicle stats significantly)
+  - BZ materials (adjust recipes to use the materials)
+  - Nullius
   - idk maybe Bobs/Angels if somebody asks nicely
 - compat with train mods:
   - SE Space Trains (make them electric instead of battery powered)
   - Renai Transportation (make sure there's no crashes or whatever when using train ramps)
   - other popular transit/train related mods?
 - other compat:
-  - Picker Dollies (make transformer & catenary poles not movable (it doesn't work anyways but gives a weird error))
+  - [x] Picker Dollies (make transformer & catenary poles not movable (it doesn't work anyways but gives a weird error))
   - [Fluidic Power](https://mods.factorio.com/mod/FluidicPower)? that'd be cool

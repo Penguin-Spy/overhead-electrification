@@ -1,4 +1,18 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.0.3
+Date: 20.11.2023
+  Features:
+    - Distribute train updates across multiple ticks, updating each train every 6 ticks (rate is configurable)
+    - Correctly unpower rails when a catenary pole is removed
+  Bugfixes:
+    - Fixed a crash when LuaTrains were removed/created due to locomotive prototypes being removed
+    - Fixed a filename issue with a wire sprite (?)
+  Compatibility:
+    - Marked catenary poles & transformer as not movable by Picker Dollies
+    - Recipe consistency with AAI Industry
+    - Move our items into the 'rail' subgroup that Space Exploration creates.=
+
+---------------------------------------------------------------------------------------------------
 Version: 0.0.2
 Date: 18.11.2023
   Features:

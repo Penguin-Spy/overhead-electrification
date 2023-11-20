@@ -222,7 +222,14 @@ local function initalize()
   global.locomotives = global.locomotives or {}
 
   ---@type table<uint, train_data> a list of trains that have at least one electric locomotive
-  global.trains = global.trains or {}
+  global.trains = {}
+  -- recreates the global.trains list because removing locomotive prototypes creates trains but doesn't trigger on_train_created
+  for _, surface in pairs(game.surfaces) do
+    local trains = surface.get_trains()
+    for _, train in pairs(trains) do
+      TrainManager.on_train_created{train = train}
+    end
+  end
 
   -- initalizes global.train_buckets and global.train_next_bucket
   rebucket_trains()
@@ -248,6 +255,15 @@ local function initalize()
   -- mapping from player index to player's "show rail power visualization" toggle
   ---@type { [uint]: boolean? }
   global.show_rail_power = global.show_rail_power or {}
+
+  -- Compatability with picker dollies
+  if remote.interfaces["PickerDollies"] then
+    remote.call("PickerDollies", "add_blacklist_name", "oe-catenary-pole")
+    remote.call("PickerDollies", "add_blacklist_name", "oe-catenary-pole-graphics")
+    remote.call("PickerDollies", "add_blacklist_name", "oe-transformer")
+    remote.call("PickerDollies", "add_blacklist_name", "oe-transformer-graphics")
+    remote.call("PickerDollies", "add_blacklist_name", "oe-locomotive-interface")
+  end
 end
 
 script.on_init(initalize)
