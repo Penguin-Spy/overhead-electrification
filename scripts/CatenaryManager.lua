@@ -264,7 +264,8 @@ local function reconnect(pole, ignore_pole)
   -- march to connect from the other pole
   local rails, direction = get_adjacent_rails(pole, global.pole_directions[pole.unit_number])
   if not rails or #rails == 0 or not direction then
-    error("neighbor pole in invalid position unexpectedly")
+    --error("neighbor pole in invalid position unexpectedly")
+    return  -- this can happen normally if the rail for that pole was removed
   end
   local quit = RailMarcher.march_to_connect(rails, on_pole, pole, ignore_pole)
   if quit then

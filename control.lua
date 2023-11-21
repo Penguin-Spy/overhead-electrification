@@ -123,6 +123,29 @@ script.on_event({
   defines.events.script_raised_destroy
 }, on_entity_destroyed)
 
+
+script.on_event(defines.events.on_entity_cloned, function(event)
+  local source = event.source
+  if identify.is_locomotive(source) then
+    local destination = event.destination
+    local data = global.locomotives[source.unit_number]
+    global.locomotives[source.unit_number] = {cloning = true}
+    global.locomotives[destination.unit_number] = data
+
+    local train_data = global.trains[source.train.id]
+    if util.remove_from_list(train_data.electric_front_movers, source) then
+      table.insert(train_data.electric_front_movers, destination)
+    elseif util.remove_from_list(train_data.electric_back_movers, source) then
+      table.insert(train_data.electric_back_movers, destination)
+    end
+
+    data.locomotive = destination
+  elseif identify.is_pole(source) then
+    CatenaryManager.on_pole_placed(event.destination)
+  end
+end)
+
+
 -- this is OK as a non-global because it still initalizes to the same value for everyone, and I keep it up to date with the event handler
 local TRAIN_UPDATE_RATE = settings.global["oe-train-update-rate"].value  --[[@as integer]]
 
