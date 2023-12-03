@@ -26,15 +26,6 @@ local NORTHWEST = defines.direction.northwest
 
 local pole_names = {"oe-catenary-pole", "oe-transformer"}
 
--- joins arrays. modifies `a` in place
----@param a table
----@param b table
-local function join(a, b)
-  for _, v in pairs(b) do
-    a[#a+1] = v
-  end
-end
-
 -- shallow copies an array. returns the new array
 ---@generic T: table
 ---@param t T
@@ -82,8 +73,6 @@ local function get_next_rail(rail, direction, connection)
     return rail.get_connected_rail{rail_direction = direction, rail_connection_direction = connection}
   end
 end
--- debug
-RailMarcher.get_next_rail = get_next_rail
 
 
 -- finds poles next to a single rail <br>
@@ -91,14 +80,11 @@ RailMarcher.get_next_rail = get_next_rail
 -- if `rail` is a curved-rail, `back_poles` is the pole on the diagonal end, else it is nil
 -- TODO: don't return poles that aren't facing the rail we're checking (for the inside of the corner of curved/straight switch thingy)
 ---@param rail LuaEntity
----@param color Color
 ---@param single boolean
----@param skip_front boolean?  debug
----@param skip_back boolean?   debug
 ---@return LuaEntity|LuaEntity[]|nil poles
 ---@return LuaEntity|LuaEntity[]|nil back_poles
 ---@nodiscard
-local function find_adjacent_poles(rail, color, single, skip_front, skip_back)
+local function find_adjacent_poles(rail, single)
   if rail.type == "straight-rail" then
     local position = rail.position
     local direction = rail.direction
@@ -120,7 +106,6 @@ local function find_adjacent_poles(rail, color, single, skip_front, skip_back)
 
     local radius = is_orthogonal(direction) and 2 or 1.5
 
-    rendering.draw_circle{color = color, width = 2, filled = false, target = position, surface = rail.surface, radius = radius, only_in_alt_mode = true}
     -- this is easier then trying to convince sumneko.lua that back_poles won't be nil for curved rails
     if single then
       return rail.surface.find_entities_filtered{position = position, radius = radius, name = pole_names, limit = 1}[1], nil
@@ -178,13 +163,6 @@ local function find_adjacent_poles(rail, color, single, skip_front, skip_back)
       error("rail direction invalid " .. direction)
     end
 
-    if not skip_front then
-      rendering.draw_circle{color = color, width = 2, filled = false, target = front_position, radius = 1.5, surface = rail.surface, only_in_alt_mode = true}
-    end
-    if not skip_back then
-      rendering.draw_circle{color = color, width = 2, filled = false, target = back_position, radius = 1.425, surface = rail.surface, only_in_alt_mode = true}
-    end
-
     local front_pole, back_pole
     if single then
       front_pole = rail.surface.find_entities_filtered{position = front_position, radius = 1.5, name = pole_names, limit = 1}[1]
@@ -198,7 +176,6 @@ local function find_adjacent_poles(rail, color, single, skip_front, skip_back)
   end
   error("cannot find ajacent poles: '" .. rail.name .. "' is not a straight-rail or curved-rail")
 end
-RailMarcher.find_adjacent_poles = find_adjacent_poles
 
 
 local insert = table.insert
@@ -212,9 +189,6 @@ local insert = table.insert
 ---@param ignore_pole LuaEntity?              a pole to ignore for calling on_pole
 ---@return boolean? quit
 local function march_rail(rail, direction, path, distance, on_pole, this_pole, ignore_pole)
-  log(serpent.line{rail, direction, path, distance, on_pole and "on_pole"})
-  local rail_lut = global.pole_powering_rail
-
   -- check LEFT, STRAIGHT, and RIGHT rails for poles
   --  when a pole is found (don't march past that rail)
   --  call the on_pole callback
@@ -246,7 +220,7 @@ local function march_rail(rail, direction, path, distance, on_pole, this_pole, i
     end
 
     -- check for poles
-    local f, b = find_adjacent_poles(left_rail, {0, 1, 1}, true, not rail_into_curve_is_orthogonal and distance <= 3, rail_into_curve_is_orthogonal and distance <= 3)
+    local f, b = find_adjacent_poles(left_rail, true)
     if not rail_into_curve_is_orthogonal then
       f, b = b, f  -- swap front & back if coming from diagonal rail
     end
@@ -283,7 +257,7 @@ local function march_rail(rail, direction, path, distance, on_pole, this_pole, i
     end
 
     -- check for poles
-    local f, b = find_adjacent_poles(right_rail, {1, 1, 0}, true, not rail_into_curve_is_orthogonal and distance <= 3, rail_into_curve_is_orthogonal and distance <= 3)
+    local f, b = find_adjacent_poles(right_rail, true)
     if not rail_into_curve_is_orthogonal then
       f, b = b, f  -- swap front & back if coming from diagonal rail
     end
@@ -319,7 +293,7 @@ local function march_rail(rail, direction, path, distance, on_pole, this_pole, i
     end
 
     -- check for poles
-    local p = find_adjacent_poles(straight_rail, {0, 1, 0}, true)
+    local p = find_adjacent_poles(straight_rail, true)
     if p then
       if p ~= ignore_pole then
         straight_rail = false  -- don't march past this rail
@@ -336,18 +310,15 @@ local function march_rail(rail, direction, path, distance, on_pole, this_pole, i
   --  pass the on_pole callback, this_pole, and ignore_pole
 
   if straight_rail and distance > 1 then
-    log("  marching straight")
     local quit = march_rail(straight_rail, direction, path, distance - 1, on_pole, this_pole, ignore_pole)
     if quit then return quit end
   end
 
   if left_rail and distance > 4 then  -- if a rail was found, the dir and path will not be nil
-    log("  marching left")
     local quit = march_rail(left_rail, left_direction  --[[@as(integer)]], left_path  --[[@as(integer[])]], distance - 4, on_pole, this_pole, ignore_pole)
     if quit then return quit end
   end
   if right_rail and distance > 4 then
-    log("  marching right")
     local quit = march_rail(right_rail, right_direction  --[[@as(integer)]], right_path  --[[@as(integer[])]], distance - 4, on_pole, this_pole, ignore_pole)
     if quit then return quit end
   end
@@ -365,17 +336,14 @@ function RailMarcher.march_to_connect(rails, on_pole, this_pole, ignore_pole)
   for _, rail in pairs(rails) do
     if rail.type == "straight-rail" then
       -- find_adjacent_poles, return true if other poles
-      local poles = find_adjacent_poles(rail, {1, 0, 0}, false)
+      local poles = find_adjacent_poles(rail, false)
       util.remove_from_list(poles, this_pole)
       if #poles > 0 then
-        log("pole too close")
         return true
       end
       -- march_rail(rail, FRONT) and march_rail(rail, BACK), returning true if either return quit=true
-      log("march_rail for straight rail")
       if march_rail(rail, FRONT, {}, 7, on_pole, this_pole, ignore_pole)
           or march_rail(rail, BACK, {}, 7, on_pole, this_pole, ignore_pole) then
-        log("pole too close during marching")
         return true
       end
       -- if placement succeded, mark adjacent rail as powered by this pole
@@ -383,20 +351,17 @@ function RailMarcher.march_to_connect(rails, on_pole, this_pole, ignore_pole)
 
       --
     else  -- rail.type == "curved-rail"
-      local f, b = find_adjacent_poles(rail, {1, 0, 0}, false)
+      local f, b = find_adjacent_poles(rail, false)
 
       -- check which end we're on, return true if other poles on the end we're on
       local on_orthogonal_end = util.remove_from_list(f, this_pole)
       if on_orthogonal_end then  -- on "FRONT" end of curved-rail
         -- if there were other poles on this end, block placement
         if #f > 0 then
-          log("pole too close")
           return true
         end
         -- march in the "FRONT" direction, and if there are poles there, block placement
-        log("march_rail FRONT for curved rail")
         if march_rail(rail, FRONT, {}, 7, on_pole, this_pole, ignore_pole) then
-          log("pole too close during marching")
           return true
         end
         -- if there's a back pole, connect to it & don't march
@@ -404,7 +369,6 @@ function RailMarcher.march_to_connect(rails, on_pole, this_pole, ignore_pole)
           on_pole(b[1], {}, 4, this_pole)
         else
           -- march in the "BACK" direction (with less distance), no blocking because anything on that end is far enough away
-          log("march_rail BACK for curved rail")
           march_rail(rail, BACK, {}, 3, on_pole, this_pole, ignore_pole)
         end
 
@@ -413,13 +377,10 @@ function RailMarcher.march_to_connect(rails, on_pole, this_pole, ignore_pole)
         -- if there were other poles on this end, block placement
         util.remove_from_list(b, this_pole)
         if #b > 0 then
-          log("pole too close")
           return true
         end
         -- march in the "BACK" direction, and if there are poles there, block placement
-        log("march_rail BACK for curved rail")
         if march_rail(rail, BACK, {}, 7, on_pole, this_pole, ignore_pole) then
-          log("pole too close during marching")
           return true
         end
         -- if there's a front pole, connect to it & don't march
@@ -427,7 +388,6 @@ function RailMarcher.march_to_connect(rails, on_pole, this_pole, ignore_pole)
           on_pole(f[1], {}, 4, this_pole)
         else
           -- march in the "FRONT" direction (with less distance), no blocking because anything on that end is far enough away
-          log("march_rail FRONT for curved rail")
           march_rail(rail, FRONT, {}, 3, on_pole, this_pole, ignore_pole)
         end
       end

@@ -7,6 +7,7 @@ local const                      = require 'constants'
 -- Global table storage for train data
 ---@class train_data
 ---@field train LuaTrain                    the LuaTrain for this data
+---@field id    uint                        the LuaTrain's id
 ---@field electric_front_movers LuaEntity[] an array of just the electric locomotive front_movers
 ---@field electric_back_movers LuaEntity[]  an array of just the electric locomotive back_movers
 ---@field bucket integer which train bucket this train_data is in
@@ -39,42 +40,31 @@ local POWER_STATE_MOVING  = 1  -- a mover in the current direction of travel
 local POWER_STATE_BRAKING = 2  -- all locomotives contribute to braking
 
 
-local BUFFER_CAPACITY          = const.LOCOMOTIVE_POWER * 1000
 local POWER_USAGE              = const.LOCOMOTIVE_POWER * 1000 / 60
 local REGEN_BRAKING_PRODUCTION = POWER_USAGE
 local YOTTAJOULE               = 10 ^ 24  -- 1000000000000000000000000
 
 
-local STATE_COLORS = {
-  [POWER_STATE_NEUTRAL] = {0, 0, 1, 0.5},  -- blue        0 stopped
-  [POWER_STATE_MOVING]  = {0, 1, 0, 0.5},  -- green       1 accelerating/maintaining speed
-  [POWER_STATE_BRAKING] = {0, 1, 1, 0.5},  -- cyan        2 braking
-  --[POWER_STATE_MANUAL]  = {0, 0.5, 0, 0.5},  -- dark green  3 <varies> -- have to check current speed i guess (>0 = consume power)
-}
-
--- debug
-local train_states = {
-  [defines.train_state.arrive_signal] = "ARRIVE_SIGNAL",
-  [defines.train_state.arrive_station] = "ARRIVE_STATION",
-  [defines.train_state.destination_full] = "DESTINATION_FULL",
-  [defines.train_state.manual_control] = "MANUAL_CONTROL",
-  [defines.train_state.manual_control_stop] = "MANUAL_CONTROL_STOP",
-  [defines.train_state.no_path] = "NO_PATH",
-  [defines.train_state.no_schedule] = "NO_SCHEDULE",
-  [defines.train_state.on_the_path] = "ON_THE_PATH",
-  [defines.train_state.path_lost] = "PATH_LOST",
-  [defines.train_state.wait_signal] = "WAIT_SIGNAL",
-  [defines.train_state.wait_station] = "WAIT_STATION",
-}
-
 local function remove_train(train_id)
   -- may have already been removed (if splitting a train)
   if not global.trains[train_id] then return end
 
+  -- remove train from bucket
   local bucket = global.trains[train_id].bucket
   global.trains[train_id] = nil
-  log("  removing from bucket " .. bucket)
   util.remove_from_list(global.train_buckets[bucket], train_id)
+
+  -- remove train from state change queue
+  for i, train_data in pairs(global.next_tick_train_state_changes) do
+    if train_data.id == train_id then
+      global.next_tick_train_state_changes[i] = nil
+    end
+  end
+  for i, train_data in pairs(global.second_next_tick_train_state_changes) do
+    if train_data.id == train_id then
+      global.second_next_tick_train_state_changes[i] = nil
+    end
+  end
 end
 
 -- [[ Event handlers ]]
@@ -82,8 +72,6 @@ end
 -- handles the `on_train_created` event
 ---@param event EventData.on_train_created
 function TrainManager.on_train_created(event)
-  log("[" .. event.train.id .. "] created (merge from " .. tostring(event.old_train_id_1) .. " and " .. tostring(event.old_train_id_2) .. ")")
-
   -- remove entries for merged trains
   if event.old_train_id_1 then
     remove_train(event.old_train_id_1)
@@ -116,17 +104,16 @@ function TrainManager.on_train_created(event)
   if has_electric_locomotive then
     global.trains[train.id] = {
       train = train,
+      id = train.id,
       electric_front_movers = electric_front_movers,
       electric_back_movers = electric_back_movers,
       bucket = global.train_next_bucket
     }
-    log("adding train to bucket " .. global.train_next_bucket)
     table.insert(global.train_buckets[global.train_next_bucket], train.id)
     global.train_next_bucket = global.train_next_bucket + 1
     if global.train_next_bucket > #global.train_buckets then
       global.train_next_bucket = 1
     end
-    log("next bucket=" .. global.train_next_bucket)
   end
 end
 
@@ -140,8 +127,6 @@ function TrainManager.on_train_state_changed(event)
   else
     table.insert(global.next_tick_train_state_changes, global.trains[train.id])
   end
-
-  log("<" .. event.tick .. "> [" .. train.id .. "] old state = " .. train_states[event.old_state] .. " new state = " .. train_states[train.state] .. " speed = " .. train.speed)
 end
 
 
@@ -176,7 +161,6 @@ end
 ---@param entity LuaEntity
 function TrainManager.on_rolling_stock_removed(entity)
   if #entity.train.carriages == 1 then
-    log("[" .. entity.train.id .. "] removed as last locomotive was removed")
     remove_train(entity.train.id)
   end
 end
@@ -209,9 +193,6 @@ end
 local function set_locomotive_power_state(locomotive, power_state)
   local data = global.locomotives[locomotive.unit_number]
   local interface = data.interface
-
-  -- debug: color based on state
-  --locomotive.color = STATE_COLORS[power_state]
 
   -- update consumption/production of interface
   if interface and interface.valid and power_state ~= data.power_state then
@@ -267,7 +248,6 @@ local function update_locomotive(data, rails)
   if current_network_id then
     -- if we were in a different network (or no network)
     if not cached_network_id or cached_network_id ~= current_network_id then
-      log("joining network " .. current_network_id)
       local network = global.catenary_networks[current_network_id]
       data.electric_network_id = current_network_id
 
@@ -293,7 +273,6 @@ local function update_locomotive(data, rails)
       end
     end
   elseif cached_network_id then  -- make sure we're not in a network
-    log("leaving network")
     if interface then interface.destroy() end
     interface = nil
     data.interface = nil
@@ -336,11 +315,13 @@ function TrainManager.update_train(train_data)
   end
 
   local rails = train.get_rails()
-  for i = 1, #train_data.electric_front_movers do
-    update_locomotive(global.locomotives[train_data.electric_front_movers[i].unit_number], rails)
+  local front_movers = train_data.electric_front_movers
+  local back_movers = train_data.electric_front_movers
+  for i = 1, #front_movers do
+    update_locomotive(global.locomotives[front_movers[i].unit_number], rails)
   end
   for i = 1, #train_data.electric_back_movers do
-    update_locomotive(global.locomotives[train_data.electric_back_movers[i].unit_number], rails)
+    update_locomotive(global.locomotives[back_movers[i].unit_number], rails)
   end
 end
 

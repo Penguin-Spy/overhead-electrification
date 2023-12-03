@@ -70,11 +70,8 @@ local function get_adjacent_rails(pole, direction)
         end
       end
     end
-    log("no direction given, all 8 searched and no found")
     return nil, nil  -- no rail found
   end
-
-  rendering.draw_circle{color = {0, 0.7, 1, 1}, radius = 0.5, width = 2, filled = false, target = pos, surface = pole.surface, only_in_alt_mode = true}
 
   -- todo: handle ghosts
   return pole.surface.find_entities_filtered{position = pos, type = {"straight-rail", "curved-rail"}}, direction
@@ -155,13 +152,11 @@ end
 ---@param pole_a LuaEntity
 ---@param pole_b LuaEntity
 local function connect_poles(pole_a, pole_b)
-  log("connecting to pole: " .. tostring(pole_b.unit_number))
   local pos = pole_a.position
   pole_a.teleport(pole_b.position)
   pole_a.connect_neighbour(pole_b)
   pole_a.teleport(pos)
 end
-
 
 
 
@@ -173,32 +168,25 @@ end
 ---@param this_pole LuaEntity
 ---@return boolean? quit
 local function on_pole(other_pole, path, distance, this_pole)
-  log("enter on_pole")
-  if distance == 7 then
-    log("pole too close")
+  if distance == 7 then  -- other pole too close
     remove_pole_graphics(this_pole)
-    return true  -- quit marching early
+    return true          -- quit marching early
   end
 
   local this_network = global.catenary_networks[this_pole.electric_network_id]
   local other_network = global.catenary_networks[other_pole.electric_network_id]
 
-  log("this id: " .. tostring(this_pole.electric_network_id) .. " other id:" .. tostring(other_pole.electric_network_id))
-
   if this_network and other_network and this_network ~= other_network then
     -- both electric networks have associated catenary data, and are not the same
-    log("leave on_pole")
     return
   else  -- one or both poles' networks don't have a transformer, or they're both in the same network
     connect_poles(this_pole, other_pole)
   end
 
   -- power path
-  log("powering path: " .. tostring(this_pole.electric_network_id))
   for _, rail_id in pairs(path) do
     global.pole_powering_rail[rail_id] = this_pole
   end
-  log("leave on_pole")
 end
 
 
@@ -206,12 +194,9 @@ end
 ---@param this_pole LuaEntity
 ---@return string|nil removal_reason string if the placement should be canceled, or nil if success
 function CatenaryManager.on_pole_placed(this_pole)
-  log("placed pole id: " .. this_pole.unit_number)
-
   -- figure out what direction we're facing and get the adjacent rail for searching for neighbors
   local rails, direction = get_adjacent_rails(this_pole, global.pole_directions[this_pole.unit_number])
-  if not rails or #rails == 0 or not direction then
-    log("no adjacent rail found")
+  if not rails or #rails == 0 or not direction then  -- no adjacent rail found
     remove_pole_graphics(this_pole)
     return "oe-invalid-pole-position"
   end
@@ -222,10 +207,8 @@ function CatenaryManager.on_pole_placed(this_pole)
   -- if this is a transformer, create catenary network
   local network
   if this_pole.name == "oe-transformer" then
-    log("network create pole id: " .. this_pole.unit_number)
     network = get_or_create_catenary_network(this_pole.electric_network_id)
     add_transformer_to_network(network, this_pole)
-    log("pole added to catenary network " .. tostring(network.electric_network_id))
   end
 
   -- returns true if the placement is invalid
@@ -234,7 +217,6 @@ function CatenaryManager.on_pole_placed(this_pole)
     remove_pole_graphics(this_pole)
     if this_pole.name == "oe-transformer" then
       -- remove the transformer from the network
-      log("removing invalid transformer placed from network: " .. tostring(network.electric_network_id))
       remove_transformer_from_network(network, this_pole)
     end
     return "oe-pole-too-close"
@@ -276,8 +258,6 @@ end
 -- handles cleanup of graphical entities & whatnot
 ---@param this_pole LuaEntity
 function CatenaryManager.on_pole_removed(this_pole)
-  log("on pole removed " .. this_pole.unit_number)
-
   -- if a transformer was removed, remove the global data for it
   -- TODO: remove locomotive interfaces (could we just delete them? locomotive updating will do a valid check)
   --  when leaving a network a locomotive will remove it's interface anyways
