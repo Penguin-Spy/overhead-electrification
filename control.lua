@@ -185,18 +185,20 @@ script.on_nth_tick(30, function(event)
         radius = 32
       }
       for _, rail in pairs(all_rails) do
-        local pole = global.pole_powering_rail[rail.unit_number]
-        if pole and pole.valid then
-          rendering.draw_circle{
-            color = {0, 1, 1}, radius = 0.5, width = 2, filled = false,
-            target = rail, surface = rail.surface, players = {player},
-            time_to_live = 31
-          }
-          rendering.draw_text{
-            color = {0, 1, 1}, text = pole.electric_network_id,
-            target = rail, surface = rail.surface, players = {player},
-            time_to_live = 31
-          }
+        if rail.name ~= "se-space-elevator-curved-rail" and rail.name ~= "se-space-elevator-straight-rail" then
+          local pole = global.pole_powering_rail[rail.unit_number]
+          if pole and pole.valid then
+            rendering.draw_circle{
+              color = {0, 1, 1}, radius = 0.5, width = 2, filled = false,
+              target = rail, surface = rail.surface, players = {player},
+              time_to_live = 31
+            }
+            rendering.draw_text{
+              color = {0, 1, 1}, text = pole.electric_network_id,
+              target = rail, surface = rail.surface, players = {player},
+              time_to_live = 31
+            }
+          end
         end
       end
     end
@@ -295,3 +297,88 @@ end
 
 script.on_init(initalize)
 script.on_configuration_changed(initalize)
+
+
+
+-- [[ testing stuff ]] --
+
+---@param entity LuaEntity
+---@param text string|number
+---@param color table?
+local function highlight(entity, text, color)
+  ---@diagnostic disable-next-line: assign-type-mismatch
+  rendering.draw_circle{color = color or {1, 0.7, 0, 1}, radius = 0.5, width = 2, filled = false, target = entity, surface = entity.surface, only_in_alt_mode = true}
+  rendering.draw_text{color = color or {1, 0.7, 0, 1}, text = text, target = entity, surface = entity.surface, only_in_alt_mode = true}
+end
+
+commands.add_command("oe-debug", {"command-help.oe-debug"}, function(command)
+  ---@type LuaPlayer
+  local player = game.players[command.player_index]
+
+  local options
+  if command.parameter and command.parameter ~= "help" then
+    options = util.split(command.parameter, " ")
+  else
+    player.print("commands: find_poles, next_rail, update_train, clear, initalize, rebucket_trains")
+    return
+  end
+
+  local subcommand = options[1]
+  if subcommand == "clear" then
+    rendering.clear(script.mod_name)
+    return
+  elseif subcommand == "initalize" then
+    initalize()
+    return
+  elseif subcommand == "rebucket_trains" then
+    rebucket_trains()
+    return
+  elseif subcommand == "update_train" then
+    TrainManager.update_train(global.trains[player.selected.train.id])
+    return
+
+    --
+  elseif subcommand == "find_poles" or subcommand == "next_rail" then
+    local rail = player.selected
+    if not (rail and rail.valid and (rail.type == "straight-rail" or rail.type == "curved-rail")) then
+      player.print("hover over a rail to use this command")
+      return
+    end
+
+    if subcommand == "find_poles" then
+      local poles, other_poles = RailMarcher.find_adjacent_poles(rail, false)  --[[@as(LuaEntity[])]]  -- in not single mode this always returns arrays
+
+      for i, pole in pairs(poles) do
+        player.print("found #" .. i .. ": " .. pole.name)
+        highlight(pole, i, {0, 1, 0})
+      end
+
+      if other_poles then
+        for i, pole in pairs(other_poles) do
+          player.print("found other #" .. i .. ": " .. pole.name)
+          highlight(pole, i, {0, 0, 1})
+        end
+      end
+
+      --
+    elseif subcommand == "next_rail" then
+      local direction = tonumber(options[2])
+      local connection = tonumber(options[3])
+      if not direction or not connection then
+        player.print("invalid options: " .. tostring(direction) .. " " .. tostring(connection))
+        player.print("usage: /oe-debug next_rail <direction> <connection>")
+        return
+      end
+      ---@diagnostic disable-next-line: param-type-mismatch
+      local next_rail = RailMarcher.get_next_rail(rail, direction, connection)
+      if next_rail then
+        player.teleport(next_rail.position)
+      else
+        player.print("no rail found")
+      end
+    end
+  else
+    player.print("unknown command")
+    return
+  end
+end)

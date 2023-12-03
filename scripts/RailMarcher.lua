@@ -73,6 +73,7 @@ local function get_next_rail(rail, direction, connection)
     return rail.get_connected_rail{rail_direction = direction, rail_connection_direction = connection}
   end
 end
+RailMarcher.get_next_rail = get_next_rail
 
 
 -- finds poles next to a single rail <br>
@@ -178,17 +179,47 @@ local function find_adjacent_poles(rail, single)
 end
 
 
+-- if both poles have compatable networks (both dont have transformers and are different), <br>
+-- connect them by teleporting and mark all rails along the path as powered by `this_pole`
+---@param other_pole LuaEntity
+---@param path integer[]
+---@param distance integer
+---@param this_pole LuaEntity
+---@return boolean? quit
+local function on_pole(other_pole, path, distance, this_pole)
+  if distance == 7 then  -- other pole too close
+    return true          -- quit marching early
+  end
+
+  local this_network = global.catenary_networks[this_pole.electric_network_id]
+  local other_network = global.catenary_networks[other_pole.electric_network_id]
+
+  if this_network and other_network and this_network ~= other_network then
+    -- both electric networks have associated catenary data, and are not the same
+    return
+  else  -- one or both poles' networks don't have a transformer, or they're both in the same network
+    local pos = this_pole.position
+    this_pole.teleport(other_pole.position)
+    this_pole.connect_neighbour(other_pole)
+    this_pole.teleport(pos)
+  end
+
+  -- power path
+  for _, rail_id in pairs(path) do
+    global.pole_powering_rail[rail_id] = this_pole
+  end
+end
+
 local insert = table.insert
 
 ---@param rail LuaEntity                      the rail to march from
 ---@param direction defines.rail_direction    the direction to march in
 ---@param path integer[]                      the unit_numbers of the rails leading up to this rail
 ---@param distance integer                    the remaining distance to travel
----@param on_pole fun(other_pole: LuaEntity, path: integer[], distance: integer, this_pole: LuaEntity): quit: boolean? the callback to run when a pole is found
 ---@param this_pole LuaEntity                 the original pole
 ---@param ignore_pole LuaEntity?              a pole to ignore for calling on_pole
 ---@return boolean? quit
-local function march_rail(rail, direction, path, distance, on_pole, this_pole, ignore_pole)
+local function march_rail(rail, direction, path, distance, this_pole, ignore_pole)
   -- check LEFT, STRAIGHT, and RIGHT rails for poles
   --  when a pole is found (don't march past that rail)
   --  call the on_pole callback
@@ -217,6 +248,22 @@ local function march_rail(rail, direction, path, distance, on_pole, this_pole, i
       left_direction = FRONT
     else
       left_direction = direction
+    end
+
+    -- check for space exporation space elevator rails (compares entity name, doesn't need conditional on the mod being present)
+    if left_rail.name == "se-space-elevator-curved-rail" then
+      -- manually march & add the space elevator exit rails
+      local se_straight_rail = get_next_rail(left_rail, BACK, STRAIGHT)
+      if not se_straight_rail then error("space elevator internal rail not found? (left straight)") end
+      local se_second_left_rail = get_next_rail(se_straight_rail, FRONT, LEFT)
+      if not se_second_left_rail then error("space elevator internal rail not found? (left left)") end
+
+      insert(left_path, se_straight_rail.unit_number)
+      insert(left_path, se_second_left_rail.unit_number)
+      for _, path_rail_id in pairs(left_path) do
+        global.pole_powering_rail[path_rail_id] = this_pole
+      end
+      return
     end
 
     -- check for poles
@@ -254,6 +301,25 @@ local function march_rail(rail, direction, path, distance, on_pole, this_pole, i
       right_direction = FRONT
     else
       right_direction = direction
+    end
+
+    -- check for space exporation space elevator rails (compares entity name, doesn't need conditional on the mod being present)
+    if right_rail.name == "se-space-elevator-curved-rail" then
+      -- manually march & add the space elevator entrance rails
+      local se_straight_rail = get_next_rail(right_rail, BACK, STRAIGHT)
+      if not se_straight_rail then error("space elevator internal rail not found? (right straight)") end
+      local se_second_right_rail = get_next_rail(se_straight_rail, FRONT, RIGHT)
+      if not se_second_right_rail then error("space elevator internal rail not found? (right right)") end
+      local se_second_straight_rail = get_next_rail(se_second_right_rail, FRONT, STRAIGHT)
+      if not se_second_straight_rail then error("space elevator internal rail not found? (right straight 2)") end
+
+      insert(right_path, se_straight_rail.unit_number)
+      insert(right_path, se_second_right_rail.unit_number)
+      insert(right_path, se_second_straight_rail.unit_number)
+      for _, path_rail_id in pairs(right_path) do
+        global.pole_powering_rail[path_rail_id] = this_pole
+      end
+      return
     end
 
     -- check for poles
@@ -310,16 +376,16 @@ local function march_rail(rail, direction, path, distance, on_pole, this_pole, i
   --  pass the on_pole callback, this_pole, and ignore_pole
 
   if straight_rail and distance > 1 then
-    local quit = march_rail(straight_rail, direction, path, distance - 1, on_pole, this_pole, ignore_pole)
+    local quit = march_rail(straight_rail, direction, path, distance - 1, this_pole, ignore_pole)
     if quit then return quit end
   end
 
   if left_rail and distance > 4 then  -- if a rail was found, the dir and path will not be nil
-    local quit = march_rail(left_rail, left_direction  --[[@as(integer)]], left_path  --[[@as(integer[])]], distance - 4, on_pole, this_pole, ignore_pole)
+    local quit = march_rail(left_rail, left_direction  --[[@as(integer)]], left_path  --[[@as(integer[])]], distance - 4, this_pole, ignore_pole)
     if quit then return quit end
   end
   if right_rail and distance > 4 then
-    local quit = march_rail(right_rail, right_direction  --[[@as(integer)]], right_path  --[[@as(integer[])]], distance - 4, on_pole, this_pole, ignore_pole)
+    local quit = march_rail(right_rail, right_direction  --[[@as(integer)]], right_path  --[[@as(integer[])]], distance - 4, this_pole, ignore_pole)
     if quit then return quit end
   end
 end
@@ -328,11 +394,10 @@ end
 --- march from the given rails, for connecting a new pole to other poles
 --- TODO: don't march the same direction twice (from straight-rail and curved-rail)
 ---@param rails LuaEntity[]                   the rails to march from
----@param on_pole fun(other_pole: LuaEntity, path: integer[], distance: integer, this_pole: LuaEntity): quit: boolean? the callback to run when a pole is found
 ---@param this_pole LuaEntity                 the original pole
 ---@param ignore_pole LuaEntity?              a pole to ignore for calling on_pole
 ---@return boolean? quit                      true if the placement is invalid
-function RailMarcher.march_to_connect(rails, on_pole, this_pole, ignore_pole)
+function RailMarcher.march_to_connect(rails, this_pole, ignore_pole)
   for _, rail in pairs(rails) do
     if rail.type == "straight-rail" then
       -- find_adjacent_poles, return true if other poles
@@ -342,8 +407,8 @@ function RailMarcher.march_to_connect(rails, on_pole, this_pole, ignore_pole)
         return true
       end
       -- march_rail(rail, FRONT) and march_rail(rail, BACK), returning true if either return quit=true
-      if march_rail(rail, FRONT, {}, 7, on_pole, this_pole, ignore_pole)
-          or march_rail(rail, BACK, {}, 7, on_pole, this_pole, ignore_pole) then
+      if march_rail(rail, FRONT, {}, 7, this_pole, ignore_pole)
+          or march_rail(rail, BACK, {}, 7, this_pole, ignore_pole) then
         return true
       end
       -- if placement succeded, mark adjacent rail as powered by this pole
@@ -361,7 +426,7 @@ function RailMarcher.march_to_connect(rails, on_pole, this_pole, ignore_pole)
           return true
         end
         -- march in the "FRONT" direction, and if there are poles there, block placement
-        if march_rail(rail, FRONT, {}, 7, on_pole, this_pole, ignore_pole) then
+        if march_rail(rail, FRONT, {}, 7, this_pole, ignore_pole) then
           return true
         end
         -- if there's a back pole, connect to it & don't march
@@ -369,7 +434,7 @@ function RailMarcher.march_to_connect(rails, on_pole, this_pole, ignore_pole)
           on_pole(b[1], {}, 4, this_pole)
         else
           -- march in the "BACK" direction (with less distance), no blocking because anything on that end is far enough away
-          march_rail(rail, BACK, {}, 3, on_pole, this_pole, ignore_pole)
+          march_rail(rail, BACK, {}, 3, this_pole, ignore_pole)
         end
 
         --
@@ -380,7 +445,7 @@ function RailMarcher.march_to_connect(rails, on_pole, this_pole, ignore_pole)
           return true
         end
         -- march in the "BACK" direction, and if there are poles there, block placement
-        if march_rail(rail, BACK, {}, 7, on_pole, this_pole, ignore_pole) then
+        if march_rail(rail, BACK, {}, 7, this_pole, ignore_pole) then
           return true
         end
         -- if there's a front pole, connect to it & don't march
@@ -388,7 +453,7 @@ function RailMarcher.march_to_connect(rails, on_pole, this_pole, ignore_pole)
           on_pole(f[1], {}, 4, this_pole)
         else
           -- march in the "FRONT" direction (with less distance), no blocking because anything on that end is far enough away
-          march_rail(rail, FRONT, {}, 3, on_pole, this_pole, ignore_pole)
+          march_rail(rail, FRONT, {}, 3, this_pole, ignore_pole)
         end
       end
 

@@ -148,47 +148,6 @@ local function remove_transformer_from_network(network, transformer)
 end
 
 
--- teleports `pole_a` to `pole_b` to connect them, then teleports it back
----@param pole_a LuaEntity
----@param pole_b LuaEntity
-local function connect_poles(pole_a, pole_b)
-  local pos = pole_a.position
-  pole_a.teleport(pole_b.position)
-  pole_a.connect_neighbour(pole_b)
-  pole_a.teleport(pos)
-end
-
-
-
--- if both poles have compatable networks (both dont have transformers and are different), <br>
--- connect them by teleporting and mark all rails along the path as powered by `this_pole`
----@param other_pole LuaEntity
----@param path integer[]
----@param distance integer
----@param this_pole LuaEntity
----@return boolean? quit
-local function on_pole(other_pole, path, distance, this_pole)
-  if distance == 7 then  -- other pole too close
-    remove_pole_graphics(this_pole)
-    return true          -- quit marching early
-  end
-
-  local this_network = global.catenary_networks[this_pole.electric_network_id]
-  local other_network = global.catenary_networks[other_pole.electric_network_id]
-
-  if this_network and other_network and this_network ~= other_network then
-    -- both electric networks have associated catenary data, and are not the same
-    return
-  else  -- one or both poles' networks don't have a transformer, or they're both in the same network
-    connect_poles(this_pole, other_pole)
-  end
-
-  -- power path
-  for _, rail_id in pairs(path) do
-    global.pole_powering_rail[rail_id] = this_pole
-  end
-end
-
 
 -- when a (non-ghost) entity is placed that's a catenary pole
 ---@param this_pole LuaEntity
@@ -212,7 +171,7 @@ function CatenaryManager.on_pole_placed(this_pole)
   end
 
   -- returns true if the placement is invalid
-  local quit = RailMarcher.march_to_connect(rails, on_pole, this_pole)
+  local quit = RailMarcher.march_to_connect(rails, this_pole)
   if quit then
     remove_pole_graphics(this_pole)
     if this_pole.name == "oe-transformer" then
@@ -249,7 +208,7 @@ local function reconnect(pole, ignore_pole)
     --error("neighbor pole in invalid position unexpectedly")
     return  -- this can happen normally if the rail for that pole was removed
   end
-  local quit = RailMarcher.march_to_connect(rails, on_pole, pole, ignore_pole)
+  local quit = RailMarcher.march_to_connect(rails, pole, ignore_pole)
   if quit then
     error("neighbor pole in invalid connection position unexpectedly")
   end

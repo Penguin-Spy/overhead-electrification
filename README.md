@@ -11,18 +11,19 @@ Translations are also welcome, although the mod is in alpha so the stuff you nee
 ## planned features:
 - catenary poles with built-in signals, double catenary poles
 - regenerative braking (wow!)
-- overlay for viewing what rails are powered
+- [x] overlay for viewing what rails are powered
 - compat with various overhaul mods:
-  - Space Exploration (space elevator, space rails, spaceship)
+  - [x] Space Exploration (space elevator, space rails, spaceship)
   - [x] AAI Industry (adjust recipes)
   - Krastorio (i haven't played it but i've heard it changes vehicle stats significantly)
   - BZ materials (adjust recipes to use the materials)
   - planetfall's resource mods
-  - Nullius
-  - idk maybe Bobs/Angels if somebody asks nicely
+  - Bobs/Angels because somebody asked nicely :)
+  - Nullius, SeaBlock, etc. if they need extra recipe tweaks
 - compat with train mods:
   - SE Space Trains (make them electric instead of battery powered)
   - Renai Transportation (make sure there's no crashes or whatever when using train ramps)
+  - Freight Forwarding (again, electric instead of battery powered)
   - other popular transit/train related mods?
 - other compat:
   - [x] Picker Dollies (make transformer & catenary poles not movable (it doesn't work anyways but gives a weird error))
