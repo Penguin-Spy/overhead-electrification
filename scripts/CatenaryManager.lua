@@ -5,8 +5,8 @@ local CatenaryManager = {}
 
 -- Global table storage for catenary network data
 ---@class catenary_network_data
----@field transformers        { uint: LuaEntity[] } map of surface id to LuaEntity array. The transformers powering this catenary network.
----@field electric_network_id uint                  The electric network this catenary network is connected to
+---@field transformers        LuaEntity[] The transformers powering this catenary network.
+---@field electric_network_id uint        The electric network this catenary network is connected to
 
 ---@alias catenary_network_id uint
 
@@ -133,9 +133,7 @@ end
 ---@param network catenary_network_data
 ---@param transformer LuaEntity
 local function add_transformer_to_network(network, transformer)
-  local surface_index = transformer.surface_index
-  network.transformers[surface_index] = network.transformers[surface_index] or {}
-  table.insert(network.transformers[surface_index], transformer)
+  table.insert(network.transformers, transformer)
 end
 
 --- removes a transformer from a catenary network <br>
@@ -143,8 +141,7 @@ end
 ---@param network catenary_network_data
 ---@param transformer LuaEntity
 local function remove_transformer_from_network(network, transformer)
-  local transformers = network.transformers[transformer.surface_index] or {}
-  util.remove_from_list(transformers, transformer)
+  util.remove_from_list(network.transformers, transformer)
 end
 
 
@@ -289,23 +286,21 @@ function CatenaryManager.update_catenary_network(existing_catenary_id, catenary_
   local cached_electric_id = catenary_network_data.electric_network_id
 
   local has_any_transformer = false
-  for _, surface_transformers in pairs(catenary_network_data.transformers) do
-    for _, transformer in pairs(surface_transformers) do
-      if transformer.valid then
-        has_any_transformer = true
-        local current_electric_id = transformer.electric_network_id
+  for _, transformer in pairs(catenary_network_data.transformers) do
+    if transformer.valid then
+      has_any_transformer = true
+      local current_electric_id = transformer.electric_network_id
 
-        -- network changed
-        if current_electric_id and current_electric_id ~= cached_electric_id then
-          log("network changed from " .. tostring(cached_electric_id) .. " to " .. current_electric_id)
-          -- remove from old network
-          remove_transformer_from_network(catenary_network_data, transformer)
+      -- network changed
+      if current_electric_id and current_electric_id ~= cached_electric_id then
+        log("network changed from " .. tostring(cached_electric_id) .. " to " .. current_electric_id)
+        -- remove from old network
+        remove_transformer_from_network(catenary_network_data, transformer)
 
-          -- add to new network
-          local network = get_or_create_catenary_network(transformer.electric_network_id)
-          add_transformer_to_network(network, transformer)
-          log("pole added to catenary network " .. tostring(network.electric_network_id))
-        end
+        -- add to new network
+        local network = get_or_create_catenary_network(transformer.electric_network_id)
+        add_transformer_to_network(network, transformer)
+        log("pole added to catenary network " .. tostring(network.electric_network_id))
       end
     end
   end

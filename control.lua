@@ -84,7 +84,7 @@ local function on_entity_created(event)
     CatenaryManager.on_rail_placed(entity)
 
     -- locomotive: create locomotives table entry
-  elseif entity.name == "oe-electric-locomotive" then
+  elseif identify.is_locomotive(entity) then
     TrainManager.on_locomotive_placed(entity)
   end
 end
@@ -291,7 +291,6 @@ local function initalize()
     remote.call("PickerDollies", "add_blacklist_name", "oe-catenary-pole-graphics")
     remote.call("PickerDollies", "add_blacklist_name", "oe-transformer")
     remote.call("PickerDollies", "add_blacklist_name", "oe-transformer-graphics")
-    remote.call("PickerDollies", "add_blacklist_name", "oe-locomotive-interface")
   end
 end
 

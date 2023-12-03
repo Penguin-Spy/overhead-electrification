@@ -234,35 +234,6 @@ local catenary_pole_recipe = {
 data:extend{catenary_pole, catenary_pole_graphics, catenary_pole_placer, catenary_pole_item, catenary_pole_recipe}
 
 
--- [[ electric locomotive interface ]] --
--- this is the hidden entity that consumes power from the electric network for the locomotive
---  teleported around by the script to be under the correct overhead network's transformer
--- no associated item or recipe
-
-local locomotive_interface = mimic(locomotive, {
-  type = "electric-energy-interface",
-  name = "oe-locomotive-interface",
-  flags = {"placeable-off-grid"},
-  energy_source = {
-    type = "electric",
-    usage_priority = "secondary-input",                     -- can only input, setting energy_production does nothing
-    buffer_capacity = const.LOCOMOTIVE_POWER .. "kJ",       -- 1 second of operation
-    input_flow_limit = 2 * const.LOCOMOTIVE_POWER .. "kW",  -- recharges in 1 second (each second: consumes LOCOMOTIVE_POWER kJ, recharges LOCOMOTIVE_POWER kJ into buffer)
-    --render_no_network_icon = false,                         -- when teleported out of the range of the transformer, should not blink the unplugged symbol
-    --render_no_power_icon = false                            -- same with low power symbol
-  },
-  energy_usage = locomotive.max_power,
-  picture = {
-    filename = "__core__/graphics/empty.png",
-    priority = "extra-high",
-    width = 1,
-    height = 1
-  }
-})
-
-data:extend{locomotive_interface}
-
-
 -- [[ internal fuel ]] --
 -- this is the hidden fuel item & category used to power the locomotive
 --  the fuel category is named & textured such that it's tooltips look identical to things that actually consume electricity
@@ -299,7 +270,6 @@ for _, percent in ipairs{75, 50, 25, 5} do
   -- and makes the burner.remaining_burning_fuel bar show it's percentage as how much is left by increasing the total burn time
   fuel.fuel_value = (100 / percent) .. "YJ"
 
-  log("generating internal fuel " .. percent .. "% with data: " .. serpent.block(fuel))
   data:extend{fuel}
 end
 

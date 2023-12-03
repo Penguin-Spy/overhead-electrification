@@ -40,9 +40,9 @@ local POWER_STATE_MOVING  = 1  -- a mover in the current direction of travel
 local POWER_STATE_BRAKING = 2  -- all locomotives contribute to braking
 
 
-local POWER_USAGE              = const.LOCOMOTIVE_POWER * 1000 / 60
-local REGEN_BRAKING_PRODUCTION = POWER_USAGE
-local YOTTAJOULE               = 10 ^ 24  -- 1000000000000000000000000
+--local POWER_USAGE              = const.LOCOMOTIVE_POWER * 1000 / 60
+--local REGEN_BRAKING_PRODUCTION = POWER_USAGE
+local YOTTAJOULE = 10 ^ 24  -- 1000000000000000000000000
 
 
 local function remove_train(train_id)
@@ -172,9 +172,10 @@ end
 -- sets the `power_usage` and `power_production` of the interface to the appropriate value for the power_state
 ---@param interface LuaEntity
 ---@param power_state PowerState
-local function set_interface_power(interface, power_state)
+---@param power_usage integer
+local function set_interface_power(interface, power_state, power_usage)
   if power_state == POWER_STATE_MOVING then
-    interface.power_usage = POWER_USAGE
+    interface.power_usage = power_usage
     --interface.power_production = 0
   elseif power_state == POWER_STATE_NEUTRAL then
     interface.power_usage = 0
@@ -184,7 +185,7 @@ local function set_interface_power(interface, power_state)
     -- TODO: check if force has regen braking researched (what level if multiple levels?)
     -- use the force of the interface entity
     -- also can't use this interface bc it's usage priority is "secondary-input"
-    --interface.power_production = REGEN_BRAKING_PRODUCTION
+    --interface.power_production = power_usage * 0.4
   end
 end
 
@@ -196,7 +197,7 @@ local function set_locomotive_power_state(locomotive, power_state)
 
   -- update consumption/production of interface
   if interface and interface.valid and power_state ~= data.power_state then
-    set_interface_power(interface, power_state)
+    set_interface_power(interface, power_state, locomotive.prototype.max_energy_usage)
     data.power_state = power_state
   end
 end
@@ -256,19 +257,19 @@ local function update_locomotive(data, rails)
           interface.destroy()
           interface = nil
           data.interface = nil
-        else  -- and new network is headfull, teleport it
-          interface.teleport(network.transformers[surface.index][1].position)
+        else  -- and new network is headfull, teleport it (to whichever the first transformer is)
+          interface.teleport(network.transformers[1].position)
         end
       else               -- if we don't have an interface
-        if network then  -- and new network is headfull, create one
+        if network then  -- and new network is headfull, create one (at whichever the first transformer is)
           interface = locomotive.surface.create_entity{
-            name = "oe-locomotive-interface",
-            position = network.transformers[surface.index][1].position,
+            name = locomotive.name .. "-oe-interface",
+            position = network.transformers[1].position,
             force = locomotive.force
           }
           if not (interface and interface.valid) then error("creating locomotive interface failed unexpectedly") end
           data.interface = interface
-          set_interface_power(interface, data.power_state)
+          set_interface_power(interface, data.power_state, locomotive.prototype.max_energy_usage)
         end
       end
     end
