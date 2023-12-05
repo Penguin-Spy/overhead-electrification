@@ -3,33 +3,7 @@
   automatically generates an interface for each locomotive with the internal fuel category
 ]]
 
--- creates an entity prototype that mimics another entity
-local function mimic(entity_prototype, properties)
-  local mimic_prototype = {
-    localised_name = {"entity-name." .. entity_prototype.name},
-    localised_description = {"entity-description." .. entity_prototype.name},
-    icon = entity_prototype.icon,  -- whichever isn't defined will just be nil
-    icons = entity_prototype.icons,
-    icon_size = entity_prototype.icon_size,
-    icon_mipmaps = entity_prototype.icon_mipmaps,
-    subgroup = "oe-other",
-    order = "oe-internal",
-    --collision_box = {{0, 0}, {0, 0}},
-    selection_box = {{-0.5, -0.5}, {0.5, 0.5}},  -- remove for not debugging
-    selectable_in_game = true,                   -- false for not debugging
-    collision_mask = {},                         -- collide with nothing (anything can be placed overtop it)
-    flags = {}
-  }
-
-  for k, v in pairs(properties) do
-    mimic_prototype[k] = v
-  end
-
-  table.insert(mimic_prototype.flags, "hidden")
-  table.insert(mimic_prototype.flags, "not-flammable")
-
-  return mimic_prototype
-end
+local data_util = require "prototypes.data_util"
 
 -- [[ electric locomotive interface ]] --
 -- this is the hidden entity that consumes power from the electric network for the locomotive
@@ -46,10 +20,13 @@ for _, locomotive in pairs(data.raw["locomotive"]) do
         error("[overhead-electrification] an electric locomotive cannot have multiple fuel categories!\n" ..
           "locomotive " .. tostring(locomotive.name) .. " has burner.fuel_categories: " .. serpent.line(locomotive.burner.fuel_categories))
       end
+      -- remove fuel slots from any electric locomotives
+      locomotive.burner.fuel_inventory_size = 0
+      locomotive.burner.burnt_inventory_size = 0
 
       local locomotive_power = util.parse_energy(locomotive.max_power) * 60  -- Watts -> Joules (undoes a conversion that util does)
 
-      local locomotive_interface = mimic(locomotive, {
+      local locomotive_interface = data_util.mimic(locomotive, {
         type = "electric-energy-interface",
         name = locomotive.name .. "-oe-interface",
         flags = {"placeable-off-grid"},

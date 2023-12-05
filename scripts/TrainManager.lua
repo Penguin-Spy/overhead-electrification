@@ -2,7 +2,6 @@
   Keeps track of trains with electric locomotives and updates them
 ]]
 local TrainManager               = {}
-local const                      = require 'constants'
 
 -- Global table storage for train data
 ---@class train_data
@@ -39,9 +38,6 @@ local POWER_STATE_NEUTRAL = 0  -- stopped or a mover in the opposite direction o
 local POWER_STATE_MOVING  = 1  -- a mover in the current direction of travel
 local POWER_STATE_BRAKING = 2  -- all locomotives contribute to braking
 
-
---local POWER_USAGE              = const.LOCOMOTIVE_POWER * 1000 / 60
---local REGEN_BRAKING_PRODUCTION = POWER_USAGE
 local YOTTAJOULE = 10 ^ 24  -- 1000000000000000000000000
 
 

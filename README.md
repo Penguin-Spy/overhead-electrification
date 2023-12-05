@@ -16,12 +16,12 @@ Translations are also welcome, although the mod is in alpha so the stuff you nee
   - [x] Space Exploration (space elevator, space rails, spaceship)
   - [x] AAI Industry (adjust recipes)
   - Krastorio (i haven't played it but i've heard it changes vehicle stats significantly)
-  - BZ materials (adjust recipes to use the materials)
+  - [x] BZ materials (adjust recipes to use the materials: aluminum, lead, tin)
   - planetfall's resource mods
   - Bobs/Angels because somebody asked nicely :)
   - Nullius, SeaBlock, etc. if they need extra recipe tweaks
 - compat with train mods:
-  - SE Space Trains (make them electric instead of battery powered)
+  - [x] SE Space Trains (make them electric instead of battery powered, optional)
   - Renai Transportation (make sure there's no crashes or whatever when using train ramps)
   - Freight Forwarding (again, electric instead of battery powered)
   - other popular transit/train related mods?

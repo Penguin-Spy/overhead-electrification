@@ -1,4 +1,20 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.0.4
+Date: 04.12.2023
+  Features:
+    - Automatically generate electric-energy-interfaces for electric locomotives
+    - Simplify some internal logic, slightly improving performance
+  Bugfixes:
+    - Handle on_entity_cloned to fix a crash when a locomotive was cloned
+    - Fix a crash when removing a train that just changed state
+    - Create data for existing locomotive entities that were not previously electric
+  Compatibility:
+    - Now compatable with Space Exploration's spaceships due to the on_entity_cloned fix. Space elevators already worked fine
+    - The internal rails of SE's Space elevator are now powered (prevents a brief "train out of fuel" warning)
+    - Compatability with SE Space Trains, makes them electric and removes the battery packs (both optional)
+    - Recipe compatability with Brevven's resource mods (Lead, Tin, & Aluminum)
+
+---------------------------------------------------------------------------------------------------
 Version: 0.0.3
 Date: 20.11.2023
   Features:
@@ -10,7 +26,7 @@ Date: 20.11.2023
   Compatibility:
     - Marked catenary poles & transformer as not movable by Picker Dollies
     - Recipe consistency with AAI Industry
-    - Move our items into the 'rail' subgroup that Space Exploration creates.=
+    - Move our items into the 'rail' subgroup that Space Exploration creates
 
 ---------------------------------------------------------------------------------------------------
 Version: 0.0.2

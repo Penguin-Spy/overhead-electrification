@@ -3,10 +3,8 @@
   also defines prototypes for the hidden fuel items & interface entity used to make the locomotive appear to consume electricity
 ]]
 
--- [[ Constants ]] --
-local base_path = "__overhead-electrification__/"
-local graphics = base_path .. "graphics/"
-local const = require 'constants'
+local graphics = "__overhead-electrification__/graphics/"
+local data_util = require "prototypes.data_util"
 
 -- [[ Util functions ]] --
 
@@ -30,34 +28,6 @@ local function generate_placer(entity_to_place, placer_prototype, additional_pro
   return placer
 end
 
--- creates an entity prototype that mimics another entity
-local function mimic(entity_prototype, properties)
-  local mimic_prototype = {
-    localised_name = {"entity-name." .. entity_prototype.name},
-    localised_description = {"entity-description." .. entity_prototype.name},
-    icon = entity_prototype.icon,  -- whichever isn't defined will just be nil
-    icons = entity_prototype.icons,
-    icon_size = entity_prototype.icon_size,
-    icon_mipmaps = entity_prototype.icon_mipmaps,
-    subgroup = "oe-other",
-    order = "oe-internal",
-    --collision_box = {{0, 0}, {0, 0}},
-    selection_box = {{-0.5, -0.5}, {0.5, 0.5}},  -- remove for not debugging
-    selectable_in_game = true,                   -- false for not debugging
-    collision_mask = {},                         -- collide with nothing (anything can be placed overtop it)
-    flags = {}
-  }
-
-  for k, v in pairs(properties) do
-    mimic_prototype[k] = v
-  end
-
-  table.insert(mimic_prototype.flags, "hidden")
-  table.insert(mimic_prototype.flags, "not-flammable")
-
-  return mimic_prototype
-end
-
 
 -- [[ Electric Locomotive ]] --
 
@@ -72,9 +42,9 @@ locomotive.burner = {
   fuel_inventory_size = 0,  -- 0 is valid and means no slots appear
   fuel_category = "oe-internal-fuel"
 }
-locomotive.max_power = const.LOCOMOTIVE_POWER .. "kW"
-locomotive.max_speed = 2  -- vanilla is 1.2
-locomotive.weight = 1200  -- vanilla is 2000 for loco, 1000 for wagons
+locomotive.max_power = "800kW"  -- vanilla locomotive is 600
+locomotive.max_speed = 2        -- vanilla is 1.2
+locomotive.weight = 1200        -- vanilla is 2000 for loco, 1000 for wagons
 
 local locomotive_item = table.deepcopy(data.raw["item-with-entity-data"]["locomotive"])
 locomotive_item.name = "oe-electric-locomotive"
@@ -90,10 +60,10 @@ local locomotive_recipe = {
   energy_required = 4,
   enabled = false,
   ingredients = {
-    {"electric-engine-unit", 20},
-    {"advanced-circuit",     10},
-    {"steel-plate",          30},
-    {"iron-stick",           4}
+    {type = "item", name = "electric-engine-unit", amount = 20},
+    {type = "item", name = "advanced-circuit",     amount = 10},
+    {type = "item", name = "steel-plate",          amount = 30},
+    {type = "item", name = "iron-stick",           amount = 4}
   },
   result = "oe-electric-locomotive"
 }
@@ -114,7 +84,7 @@ transformer.supply_area_distance = 0.5  -- only inside of it since it's 2x2
 transformer.build_grid_size = 2         -- ensure ghosts also follow the rail grid
 
 -- simple-entity for graphics
-local transformer_graphics = mimic(transformer, {
+local transformer_graphics = data_util.mimic(transformer, {
   type = "simple-entity-with-owner",
   name = "oe-transformer-graphics",
   flags = {"not-rotatable"},
@@ -157,9 +127,9 @@ local transformer_recipe = {
   energy_required = 10,
   enabled = false,
   ingredients = {
-    {"copper-cable",     20},
-    {"steel-plate",      10},
-    {"advanced-circuit", 5}
+    {type = "item", name = "copper-cable",     amount = 20},
+    {type = "item", name = "steel-plate",      amount = 10},
+    {type = "item", name = "advanced-circuit", amount = 5}
   },
   result = "oe-transformer"
 }
@@ -182,7 +152,7 @@ catenary_pole.flags = {"player-creation", "placeable-player", "building-directio
 catenary_pole.fast_replaceable_group = ""  -- don't fast replace with power poles
 
 -- simple-entity for graphics
-local catenary_pole_graphics = mimic(catenary_pole, {
+local catenary_pole_graphics = data_util.mimic(catenary_pole, {
   type = "simple-entity-with-owner",
   name = "oe-catenary-pole-graphics",
   flags = {"not-rotatable"},
@@ -224,9 +194,9 @@ local catenary_pole_recipe = {
   name = "oe-catenary-pole",
   enabled = false,
   ingredients = {
-    {"copper-cable", 10},
-    {"steel-plate",  4},
-    {"iron-stick",   4}
+    {type = "item", name = "copper-cable", amount = 10},
+    {type = "item", name = "steel-plate",  amount = 4},
+    {type = "item", name = "iron-stick",   amount = 4}
   },
   result = "oe-catenary-pole"
 }
@@ -296,13 +266,14 @@ data:extend{
       -- double sided pole, combo catenary & big power pole
     },
     prerequisites = {"railway", "electric-engine", "electric-energy-distribution-1"},
+    ---@type data.TechnologyUnit
     unit = {
       count = 75,
       ingredients =
       {
-        {"automation-science-pack", 1},
-        {"logistic-science-pack",   1},
-        {"chemical-science-pack",   1}
+        {type = "item", name = "automation-science-pack", amount = 1},
+        {type = "item", name = "logistic-science-pack",   amount = 1},
+        {type = "item", name = "chemical-science-pack",   amount = 1}
       },
       time = 30
     },  -- after railway (c-g-a), before fluid-wagon (c-g-a-b)
@@ -321,9 +292,9 @@ data:extend{
     unit = {
       count = 50,
       ingredients = {
-        {"automation-science-pack", 1},
-        {"logistic-science-pack",   1},
-        {"chemical-science-pack",   1}
+        {type = "item", name = "automation-science-pack", amount = 1},
+        {type = "item", name = "logistic-science-pack",   amount = 1},
+        {type = "item", name = "chemical-science-pack",   amount = 1}
       },
       time = 30
     },  -- after electric-railway (c-g-a-a)

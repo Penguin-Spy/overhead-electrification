@@ -10,7 +10,7 @@ space_before_inline_comment = 2
 space_around_table_append_operator = true
 
 # none/single/double -- none means don't change
-quote_style = none
+quote_style = double
 
 # do not hard wrap lines
 max_line_length = unset

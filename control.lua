@@ -7,12 +7,12 @@
 ]]
 
 
-util = require 'util'
-RailMarcher = require 'scripts.RailMarcher'
-identify = require 'scripts.identify'  ---@diagnostic disable-line: lowercase-global
+util = require "util"
+RailMarcher = require "scripts.RailMarcher"
+identify = require "scripts.identify"  ---@diagnostic disable-line: lowercase-global
 
-local CatenaryManager = require 'scripts.CatenaryManager'
-local TrainManager = require 'scripts.TrainManager'
+local CatenaryManager = require "scripts.CatenaryManager"
+local TrainManager = require "scripts.TrainManager"
 
 if script.active_mods["gvv"] then require("__gvv__.gvv")() end
 
@@ -250,6 +250,16 @@ local function initalize()
   ---@type table<uint, locomotive_data> A mapping of unit_number to locomotive data
   global.locomotives = global.locomotives or {}
 
+  -- create locomotive data for locomotives that don't have any (caused by an update that adds support for a mod, or other weird shenanigans)
+  for _, surface in pairs(game.surfaces) do
+    local locomotives = surface.find_entities_filtered{type = "locomotive"}
+    for _, locomotive in pairs(locomotives) do
+      if not global.locomotives[locomotive.unit_number] then  -- only create the data if it doesn't exist already
+        TrainManager.on_locomotive_placed(locomotive)
+      end
+    end
+  end
+
   ---@type table<uint, train_data> a list of trains that have at least one electric locomotive
   global.trains = {}
   -- recreates the global.trains list because removing locomotive prototypes creates trains but doesn't trigger on_train_created
@@ -285,7 +295,7 @@ local function initalize()
   ---@type { [uint]: boolean? }
   global.show_rail_power = global.show_rail_power or {}
 
-  -- Compatability with picker dollies
+  -- compatibility with picker dollies
   if remote.interfaces["PickerDollies"] then
     remote.call("PickerDollies", "add_blacklist_name", "oe-catenary-pole")
     remote.call("PickerDollies", "add_blacklist_name", "oe-catenary-pole-graphics")
