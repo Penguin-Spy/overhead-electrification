@@ -7,15 +7,16 @@
 ]]
 
 require "prototypes.core"
+require "prototypes.electric-locomotive"
 
 if mods["aai-industry"] then
-  require "prototypes.aai-industry"
+  require "prototypes.compat.aai-industry"
 end
 
 if mods["space-exploration"] then
-  require "prototypes.space-exploration"
+  require "prototypes.compat.space-exploration"
 end
 
 if mods["bzaluminum"] or mods["bzlead"] or mods["bztin"] then
-  require "prototypes.bz"
+  require "prototypes.compat.bz"
 end

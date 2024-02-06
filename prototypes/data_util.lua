@@ -170,6 +170,7 @@ local function mimic(entity_prototype, properties)
 end
 
 return {
+  graphics = "__overhead-electrification__/graphics/",
   remove_technology_recipe_unlock = remove_technology_recipe_unlock,
   remove_technology_prerequisite = remove_technology_prerequisite,
   add_technology_prerequisite = add_technology_prerequisite,
