@@ -24,7 +24,7 @@ local SOUTHEAST = defines.direction.southeast
 local SOUTHWEST = defines.direction.southwest
 local NORTHWEST = defines.direction.northwest
 
-local pole_names = {"oe-catenary-pole", "oe-transformer"}
+local pole_names = identify.electric_pole_names
 
 -- shallow copies an array. returns the new array
 ---@generic T: table

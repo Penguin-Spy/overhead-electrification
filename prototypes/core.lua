@@ -45,7 +45,7 @@ transformer.build_grid_size = 2         -- ensure ghosts also follow the rail gr
 local transformer_graphics = data_util.mimic(transformer, {
   type = "simple-entity-with-owner",
   name = "oe-transformer-graphics",
-  flags = {"not-rotatable"},
+  flags = {"placeable-neutral", "player-creation"},  -- blueprintable
   build_grid_size = 2,
   picture = {
     sheet = {
@@ -108,6 +108,115 @@ catenary_pole.maximum_wire_distance = 0.75  -- allow connecting to 2x2 poles ins
 catenary_pole.supply_area_distance = 0
 catenary_pole.flags = {"player-creation", "placeable-player", "building-direction-8-way", "filter-directions"}
 catenary_pole.fast_replaceable_group = ""  -- don't fast replace with power poles
+
+--[[
+  oe-catenary-electric-pole-[0..7]      -- hidden entity that does the electric network stuff (including showing wires)
+                                        -- 8 copies of it, one for each direction
+
+  oe-normal-catenary-pole-orthogonal    -- simple entities that show graphics and are blueprintable
+  oe-normal-catenary-pole-diagonal
+
+  oe-signal-catenary-pole               -- rail signal, does graphics for all 8 directions, selectable, circuit wireable, blueprintable
+  oe-chain-catenary-pole                -- chain signal, does graphics for all 8 directions, selectable, circuit wireable, blueprintable
+
+  oe-transformer                        -- electric pole
+  oe-transformer-graphics               -- simple entity
+]]
+
+local copper_wire_connection_points = {
+  {x = 1.5,  y = -3},    -- 0, north,     right
+  {x = 1.5,  y = -2},    -- 1, northeast, down right
+  {x = 0.4,  y = 0.1},   -- 2, east,      down
+  {x = -1,   y = -1.8},  -- 3, southeast, down left
+  {x = -1.5, y = -3},    -- 4, south,     left
+  {x = -0.7, y = -3.8},  -- 5, southwest, up left
+  {x = -0.2, y = -3.2},  -- 6, west,      up
+  {x = 1.2,  y = -4},    -- 7, northwest, up right
+}
+
+for i = 0, 7 do
+  data:extend{{
+    type = "electric-pole",
+    name = "oe-catenary-electric-pole-" .. i,
+    tile_width = 1, tile_height = 1,  -- required so entity doesn't snap to tile grid edges
+    collision_mask = {},
+    subgroup = "oe-other",
+
+    maximum_wire_distance = 0.1,  -- required to be able to connect to other poles via teleporting
+    supply_area_distance = 0,
+    connection_points = {
+      {
+        wire = {
+          copper = copper_wire_connection_points[i + 1]
+        },
+        shadow = {
+          copper = {x = 0, y = 0}  -- TODO: add to list above
+        }
+      }
+    },
+    pictures = {
+      direction_count = 1,
+      filename = "__core__/graphics/empty.png",
+      priority = "extra-high",
+      width = 1,
+      height = 1
+    }
+  }  --[[@as data.ElectricPolePrototype]]}
+end
+
+
+data:extend{
+  {
+    type = "simple-entity-with-owner",
+    name = "oe-normal-catenary-pole-orthogonal",
+    collision_box = {{-0.15, -0.15}, {0.15, 0.15}},
+    selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
+    flags = {"placeable-neutral", "player-creation"},  -- blueprintable
+    placeable_by = {item = "oe-catenary-pole", count = 1},
+    minable = {mining_time = 0.1, result = "oe-catenary-pole"},
+    max_health = 100,
+    localised_name = {"entity-name.oe-catenary-pole"},
+    localised_description = {"entity-description.oe-catenary-pole"},
+    icons = {{icon = "__base__/graphics/icons/medium-electric-pole.png", icon_size = 64, icon_mipmaps = 4, tint = {r = 1, g = 1, b = 0.7, a = 1}}},
+    subgroup = "train-transport",
+
+    picture = {
+      sheet = {
+        shift = {x = 1, y = -1.5},
+        filename = graphics .. "catenary-pole/test-sheet.png",
+        priority = "extra-high",
+        width = 96,
+        height = 128
+      }
+    }
+  }  --[[@as data.SimpleEntityWithOwnerPrototype]],
+  {
+    type = "simple-entity-with-owner",
+    name = "oe-normal-catenary-pole-diagonal",
+    collision_box = {{-0.15, -0.15}, {0.15, 0.15}},
+    selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
+    flags = {"placeable-neutral", "player-creation"},  -- blueprintable
+    placeable_by = {item = "oe-catenary-pole", count = 1},
+    minable = {mining_time = 0.1, result = "oe-catenary-pole"},
+    max_health = 100,
+    localised_name = {"entity-name.oe-catenary-pole"},
+    localised_description = {"entity-description.oe-catenary-pole"},
+    icons = {{icon = "__base__/graphics/icons/medium-electric-pole.png", icon_size = 64, icon_mipmaps = 4, tint = {r = 1, g = 1, b = 0.7, a = 1}}},
+    subgroup = "train-transport",
+
+    picture = {
+      sheet = {
+        shift = {x = 1, y = -1.5},
+        filename = graphics .. "catenary-pole/test-sheet2.png",
+        priority = "extra-high",
+        width = 96,
+        height = 128
+      }
+    }
+  }  --[[@as data.SimpleEntityWithOwnerPrototype]]
+}
+
+
 
 -- simple-entity for graphics
 local catenary_pole_graphics = data_util.mimic(catenary_pole, {

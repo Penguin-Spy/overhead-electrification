@@ -8,8 +8,8 @@
 
 
 util = require "util"
-RailMarcher = require "scripts.RailMarcher"
 identify = require "scripts.identify"  ---@diagnostic disable-line: lowercase-global
+RailMarcher = require "scripts.RailMarcher"
 
 local CatenaryManager = require "scripts.CatenaryManager"
 local TrainManager = require "scripts.TrainManager"
@@ -65,16 +65,18 @@ end
 local function on_entity_created(event)
   local entity = event.created_entity or event.entity
 
+  game.print(entity.name)
+
   -- name of the entity this placer is placing, or nil if not a placer
-  local placer_target = string.match(entity.name, "^(oe%-.-)%-placer$")
-  if placer_target then  -- all placers are for catenary poles
-    entity = CatenaryManager.handle_placer(entity, placer_target)
+  local is_placer = string.match(entity.name, "^oe%-.-%-placer$") or (entity.name == "entity-ghost" and string.match(entity.ghost_name, "^oe%-.-%-placer$"))
+  if is_placer then  -- all placers are for catenary poles
+    entity = CatenaryManager.handle_placer(entity)
   end
   -- the real entity actually got built, run on_build code for them
 
   -- catenary poles: check if valid space, check if can create pole connections
-  if identify.is_pole(entity) then
-    local reason = CatenaryManager.on_pole_placed(entity)
+  if identify.is_pole_graphics(entity) then
+    local reason = CatenaryManager.on_pole_graphics_placed(entity)
     if reason then
       cancel_entity_creation(entity, event, {"cant-build-reason." .. reason})
     end
@@ -102,8 +104,8 @@ script.on_event({
 local function on_entity_destroyed(event)
   local entity = event.entity
 
-  if identify.is_pole(entity) then
-    CatenaryManager.on_pole_removed(entity)
+  if identify.is_pole_graphics(entity) then
+    CatenaryManager.on_pole_graphics_removed(entity)
   elseif entity.type == "straight-rail" or entity.type == "curved-rail" then
     CatenaryManager.on_rail_removed(entity)
   elseif identify.is_locomotive(entity) then
@@ -140,8 +142,8 @@ script.on_event(defines.events.on_entity_cloned, function(event)
     end
 
     data.locomotive = destination
-  elseif identify.is_pole(source) then
-    CatenaryManager.on_pole_placed(event.destination)
+  elseif identify.is_pole_graphics(source) then
+    CatenaryManager.on_pole_graphics_placed(event.destination)
   end
 end)
 
@@ -266,6 +268,7 @@ local function initalize()
   for _, surface in pairs(game.surfaces) do
     local trains = surface.get_trains()
     for _, train in pairs(trains) do
+      ---@diagnostic disable-next-line: missing-fields
       TrainManager.on_train_created{train = train}
     end
   end
