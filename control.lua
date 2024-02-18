@@ -65,8 +65,6 @@ end
 local function on_entity_created(event)
   local entity = event.created_entity or event.entity
 
-  game.print(entity.name)
-
   -- name of the entity this placer is placing, or nil if not a placer
   local is_placer = string.match(entity.name, "^oe%-.-%-placer$") or (entity.name == "entity-ghost" and string.match(entity.ghost_name, "^oe%-.-%-placer$"))
   if is_placer then  -- all placers are for catenary poles
@@ -288,6 +286,9 @@ local function initalize()
   ---@type table<uint, integer>
   global.pole_directions = global.pole_directions or {}
 
+  -- mapping of `unit_number` of graphics simple entity to the LuaEntity of the corresponding electric pole
+  global.pole_graphics_to_electric_pole = global.pole_graphics_to_electric_pole or {}
+
   -- riding_state needs 1 tick to update, or 2 if the train state changed to on_the_path
   ---@type train_data[]
   global.next_tick_train_state_changes = global.next_tick_train_state_changes or {}
@@ -300,10 +301,9 @@ local function initalize()
 
   -- compatibility with picker dollies
   if remote.interfaces["PickerDollies"] then
-    remote.call("PickerDollies", "add_blacklist_name", "oe-catenary-pole")
-    remote.call("PickerDollies", "add_blacklist_name", "oe-catenary-pole-graphics")
+    remote.call("PickerDollies", "add_blacklist_name", "oe-normal-catenary-pole-orthogonal")
+    remote.call("PickerDollies", "add_blacklist_name", "oe-normal-catenary-pole-diagonal")
     remote.call("PickerDollies", "add_blacklist_name", "oe-transformer")
-    remote.call("PickerDollies", "add_blacklist_name", "oe-transformer-graphics")
   end
 end
 

@@ -3,16 +3,27 @@
 ]]
 local identify = {}
 
-identify.electric_pole_names = {"oe-catenary-electric-pole-0", "oe-catenary-electric-pole-1", "oe-catenary-electric-pole-2", "oe-catenary-electric-pole-3",
-  "oe-catenary-electric-pole-4", "oe-catenary-electric-pole-5", "oe-catenary-electric-pole-6", "oe-catenary-electric-pole-7"}
+identify.electric_pole_names = {
+  "oe-catenary-electric-pole-0", "oe-catenary-electric-pole-1", "oe-catenary-electric-pole-2", "oe-catenary-electric-pole-3",
+  "oe-catenary-electric-pole-4", "oe-catenary-electric-pole-5", "oe-catenary-electric-pole-6", "oe-catenary-electric-pole-7",
+  "oe-transformer-electric-pole-0", "oe-transformer-electric-pole-1", "oe-transformer-electric-pole-2", "oe-transformer-electric-pole-3"
+}
 
 local electric_pole_map = util.list_to_map(identify.electric_pole_names)
+local transformer_electric_pole_map = util.list_to_map{"oe-transformer-electric-pole-0", "oe-transformer-electric-pole-1", "oe-transformer-electric-pole-2", "oe-transformer-electric-pole-3"}
 
 -- checks if an entity is a catenary pole
 ---@param entity LuaEntity
 ---@return boolean
 function identify.is_pole(entity)
   return electric_pole_map[entity.name]
+end
+
+-- checks if an entity is a tranformer pole
+---@param entity LuaEntity
+---@return boolean
+function identify.is_transformer_pole(entity)
+  return transformer_electric_pole_map[entity.name]
 end
 
 -- checks if an entity is a catenary pole's graphics
@@ -22,9 +33,9 @@ function identify.is_pole_graphics(entity)
   local name = entity.name
   return name == "oe-normal-catenary-pole-orthogonal"
       or name == "oe-normal-catenary-pole-diagonal"
-      or name == "oe-signal-catenary-pole"
-      or name == "oe-chain-catenary-pole"
-      or name == "oe-transformer-graphics"
+      --or name == "oe-signal-catenary-pole"
+      --or name == "oe-chain-catenary-pole"
+      or name == "oe-transformer"
 end
 
 -- is the given locomotive an electric locomotive?

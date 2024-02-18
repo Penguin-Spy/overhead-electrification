@@ -6,47 +6,67 @@
 local data_util = require "prototypes.data_util"
 local graphics = data_util.graphics
 
--- [[ Util functions ]] --
+--[[ === Rail power transformer ===
 
--- generates a dummy "placer entity" to use it's placement restrictions to a different entity type
--- ex: transformer has a placer that's a train-stop to force it to be placed next to rails
-local function generate_placer(entity_to_place, placer_prototype, additional_properties)
-  local placer = table.deepcopy(entity_to_place)
+oe-transformer-electric-pole-[0..3]   -- hidden entity that does the electric network stuff (including showing wires)
+                                      -- 4 copies of it, one for each direction
+oe-transformer                        -- simple entity that shows graphics and is blueprintable
+]]
 
-  placer.type = placer_prototype
-  placer.name = entity_to_place.name .. "-placer"
-  placer.localised_name = {"entity-name." .. entity_to_place.name}
-  placer.localised_description = {"entity-description." .. entity_to_place.name}
+local transformer_icons = {{icon = "__base__/graphics/icons/accumulator.png", icon_size = 64, icon_mipmaps = 4, tint = {r = 1, g = 1, b = 0.7, a = 1}}}
+local transformer_wire_connection_points = {
+  {x = 1,  y = -3},  -- 0, north,     right
+  {x = 0,  y = -2},  -- 2, east,      down
+  {x = -1, y = -3},  -- 4, south,     left
+  {x = 0,  y = -4},  -- 6, west,      up
+}
 
-  for k, v in pairs(additional_properties) do
-    placer[k] = v
-  end
+-- 4 hidden electric poles, 1 for each of the transformer's 4 orientations
+for i = 0, 3 do
+  data:extend{{
+    type = "electric-pole",
+    name = "oe-transformer-electric-pole-" .. i,
+    tile_width = 2, tile_height = 2,
+    build_grid_size = 2,
+    collision_mask = {},
+    subgroup = "oe-other",
 
-  -- makes Q and blueprints work. place_result must still be set on the item
-  entity_to_place.placeable_by = {item = entity_to_place.name, count = 1}
-
-  return placer
+    maximum_wire_distance = 9,  -- allow the transformer to connect to other normal electric poles
+    supply_area_distance = 0,
+    connection_points = {{
+      wire = {
+        copper = transformer_wire_connection_points[i + 1]
+      },
+      shadow = {
+        copper = {x = 0, y = 0}  -- TODO: add to list above
+      }
+    }},
+    pictures = {
+      direction_count = 1,
+      filename = "__core__/graphics/empty.png",
+      priority = "extra-high",
+      width = 1,
+      height = 1
+    }
+  }  --[[@as data.ElectricPolePrototype]]}
 end
 
-
--- [[ Rail power transformer ]] --
-
-local transformer = table.deepcopy(data.raw["electric-pole"]["substation"])
-transformer.name = "oe-transformer"
-transformer.minable.result = "oe-transformer"
-transformer.icons = {{icon = "__base__/graphics/icons/accumulator.png", tint = {r = 1, g = 1, b = 0.7, a = 1}}}
-transformer.icon_size = 64
-transformer.icon_mipmaps = 4
-transformer.maximum_wire_distance = 9   -- medium-electric-pole
-transformer.supply_area_distance = 0.5  -- only inside of it since it's 2x2
-transformer.build_grid_size = 2         -- ensure ghosts also follow the rail grid
-
--- simple-entity for graphics
-local transformer_graphics = data_util.mimic(transformer, {
+-- simple entity to exist in the world (visible, minable, blueprintable, has health & gets destroyed)
+local transformer_graphics = {
   type = "simple-entity-with-owner",
-  name = "oe-transformer-graphics",
-  flags = {"placeable-neutral", "player-creation"},  -- blueprintable
+  name = "oe-transformer",
+  collision_box = {{-0.7, -0.7}, {0.7, 0.7}},
+  selection_box = {{-1, -1}, {1, 1}},
   build_grid_size = 2,
+  flags = {"placeable-neutral", "player-creation"},
+  placeable_by = {item = "oe-transformer", count = 1},
+  minable = {mining_time = 0.1, result = "oe-transformer"},
+  max_health = 200,
+  localised_name = {"entity-name.oe-transformer"},
+  localised_description = {"entity-description.oe-transformer"},
+  icons = transformer_icons,
+  subgroup = "train-transport",
+
   picture = {
     sheet = {
       filename = graphics .. "catenary-pole/direction-4.png",
@@ -56,29 +76,46 @@ local transformer_graphics = data_util.mimic(transformer, {
       scale = 0.5
     }
   }
-})
+}  --[[@as data.SimpleEntityWithOwnerPrototype]]
 
--- dummy placement entity for placement restrictions, immediatley replaced by the real one in control.lua
-local transformer_placer = generate_placer(transformer, "train-stop", {
+-- dummy placement entity for placement restrictions for the player, immediately replaced by the real one in control.lua
+local transformer_placer = {
+  type = "train-stop",
+  name = "oe-transformer-placer",
+  collision_box = {{-0.7, -0.7}, {0.7, 0.7}},
+  selection_box = {{-1, -1}, {1, 1}},
+  build_grid_size = 2,
+  subgroup = "oe-other",
+  icons = transformer_icons,
+  localised_name = {"entity-name.oe-transformer"},
+  localised_description = {"entity-description.oe-transformer"},
+
   animation_ticks_per_frame = 1,
   chart_name = false,
-  flags = data.raw["train-stop"]["train-stop"].flags,  -- add "filter-directions"
+  flags = {"placeable-neutral", "player-creation", "building-direction-8-way", "filter-directions"},
   rail_overlay_animations = data.raw["train-stop"]["train-stop"].rail_overlay_animations,
-  animations = {north = transformer.pictures}
-})
+  animations = {
+    north = {
+      filename = graphics .. "catenary-pole/direction-4.png",
+      priority = "extra-high",
+      size = 76,
+      shift = util.by_pixel(-0.5, -0.5),
+      scale = 0.5
+    }
+  },
+
+  placeable_by = {item = "oe-transformer", count = 1}
+}
 
 local transformer_item = {
   type = "item",
   name = "oe-transformer",
-  icons = transformer.icons,
-  icon_size = transformer.icon_size,
-  icon_mipmaps = transformer.icon_mipmaps,
+  icons = transformer_icons,
   subgroup = "train-transport",
   order = "a[train-system]-z[ovehead-electrification]-b",
   place_result = transformer_placer.name,
   stack_size = 50
 }
-
 local transformer_recipe = {
   type = "recipe",
   name = "oe-transformer",
@@ -92,48 +129,34 @@ local transformer_recipe = {
   result = "oe-transformer"
 }
 
-data:extend{transformer, transformer_graphics, transformer_placer, transformer_item, transformer_recipe}
+data:extend{transformer_graphics, transformer_placer, transformer_item, transformer_recipe}
 
 
--- [[ Overhead power line pylons ]] --
+--[[ === Overhead power line pylons ===
 
--- power pole
-local catenary_pole = table.deepcopy(data.raw["electric-pole"]["medium-electric-pole"])
-catenary_pole.name = "oe-catenary-pole"
-catenary_pole.icons = {{icon = "__base__/graphics/icons/medium-electric-pole.png", tint = {r = 1, g = 1, b = 0.7, a = 1}}}
-catenary_pole.icon_size = 64
-catenary_pole.icon_mipmaps = 4
-catenary_pole.minable.result = "oe-catenary-pole"
-catenary_pole.maximum_wire_distance = 0.75  -- allow connecting to 2x2 poles inside of it, but not anything outside of it so player can't change connections)
-catenary_pole.supply_area_distance = 0
-catenary_pole.flags = {"player-creation", "placeable-player", "building-direction-8-way", "filter-directions"}
-catenary_pole.fast_replaceable_group = ""  -- don't fast replace with power poles
+oe-catenary-electric-pole-[0..7]      -- hidden entity that does the electric network stuff (including showing wires)
+                                      -- 8 copies of it, one for each direction
 
---[[
-  oe-catenary-electric-pole-[0..7]      -- hidden entity that does the electric network stuff (including showing wires)
-                                        -- 8 copies of it, one for each direction
+oe-normal-catenary-pole-orthogonal    -- simple entities that show graphics and are blueprintable
+oe-normal-catenary-pole-diagonal
 
-  oe-normal-catenary-pole-orthogonal    -- simple entities that show graphics and are blueprintable
-  oe-normal-catenary-pole-diagonal
-
-  oe-signal-catenary-pole               -- rail signal, does graphics for all 8 directions, selectable, circuit wireable, blueprintable
-  oe-chain-catenary-pole                -- chain signal, does graphics for all 8 directions, selectable, circuit wireable, blueprintable
-
-  oe-transformer                        -- electric pole
-  oe-transformer-graphics               -- simple entity
+oe-signal-catenary-pole               -- rail signal, does graphics for all 8 directions, selectable, circuit wireable, blueprintable
+oe-chain-catenary-pole                -- chain signal, does graphics for all 8 directions, selectable, circuit wireable, blueprintable
 ]]
 
-local copper_wire_connection_points = {
-  {x = 1.5,  y = -3},    -- 0, north,     right
-  {x = 1.5,  y = -2},    -- 1, northeast, down right
-  {x = 0.4,  y = 0.1},   -- 2, east,      down
-  {x = -1,   y = -1.8},  -- 3, southeast, down left
-  {x = -1.5, y = -3},    -- 4, south,     left
-  {x = -0.7, y = -3.8},  -- 5, southwest, up left
-  {x = -0.2, y = -3.2},  -- 6, west,      up
-  {x = 1.2,  y = -4},    -- 7, northwest, up right
+local catenary_pole_icons = {{icon = "__base__/graphics/icons/medium-electric-pole.png", icon_size = 64, icon_mipmaps = 4, tint = {r = 1, g = 1, b = 0.7, a = 1}}}
+local catenary_wire_connection_points = {
+  {x = 1,  y = -3},  -- 0, north,     right
+  {x = 1,  y = -2},  -- 1, northeast, down right
+  {x = 0,  y = -2},  -- 2, east,      down
+  {x = -1, y = -2},  -- 3, southeast, down left
+  {x = -1, y = -3},  -- 4, south,     left
+  {x = -1, y = -4},  -- 5, southwest, up left
+  {x = 0,  y = -4},  -- 6, west,      up
+  {x = 1,  y = -4},  -- 7, northwest, up right
 }
 
+-- 8 hidden electric poles, 1 for each of the catenary poles' 8 orientations
 for i = 0, 7 do
   data:extend{{
     type = "electric-pole",
@@ -142,18 +165,16 @@ for i = 0, 7 do
     collision_mask = {},
     subgroup = "oe-other",
 
-    maximum_wire_distance = 0.1,  -- required to be able to connect to other poles via teleporting
+    maximum_wire_distance = 0.71,  -- minimum distance to be able to connect catenary and tranformer electric poles via teleporting
     supply_area_distance = 0,
-    connection_points = {
-      {
-        wire = {
-          copper = copper_wire_connection_points[i + 1]
-        },
-        shadow = {
-          copper = {x = 0, y = 0}  -- TODO: add to list above
-        }
+    connection_points = {{
+      wire = {
+        copper = catenary_wire_connection_points[i + 1]
+      },
+      shadow = {
+        copper = {x = 0, y = 0}  -- TODO: add to list above
       }
-    },
+    }},
     pictures = {
       direction_count = 1,
       filename = "__core__/graphics/empty.png",
@@ -164,29 +185,30 @@ for i = 0, 7 do
   }  --[[@as data.ElectricPolePrototype]]}
 end
 
-
+-- simple entities to exist in the world (visible, minable, blueprintable, have health & get destroyed)
 data:extend{
   {
     type = "simple-entity-with-owner",
     name = "oe-normal-catenary-pole-orthogonal",
     collision_box = {{-0.15, -0.15}, {0.15, 0.15}},
     selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
-    flags = {"placeable-neutral", "player-creation"},  -- blueprintable
+    flags = {"placeable-neutral", "player-creation"},
     placeable_by = {item = "oe-catenary-pole", count = 1},
     minable = {mining_time = 0.1, result = "oe-catenary-pole"},
     max_health = 100,
     localised_name = {"entity-name.oe-catenary-pole"},
     localised_description = {"entity-description.oe-catenary-pole"},
-    icons = {{icon = "__base__/graphics/icons/medium-electric-pole.png", icon_size = 64, icon_mipmaps = 4, tint = {r = 1, g = 1, b = 0.7, a = 1}}},
+    icons = catenary_pole_icons,
     subgroup = "train-transport",
 
     picture = {
       sheet = {
-        shift = {x = 1, y = -1.5},
+        shift = {x = 0, y = -1.5},
         filename = graphics .. "catenary-pole/test-sheet.png",
         priority = "extra-high",
-        width = 96,
-        height = 128
+        width = 96 * 2,
+        height = 128 * 2,
+        scale = 0.5
       }
     }
   }  --[[@as data.SimpleEntityWithOwnerPrototype]],
@@ -195,67 +217,54 @@ data:extend{
     name = "oe-normal-catenary-pole-diagonal",
     collision_box = {{-0.15, -0.15}, {0.15, 0.15}},
     selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
-    flags = {"placeable-neutral", "player-creation"},  -- blueprintable
+    flags = {"placeable-neutral", "player-creation"},
     placeable_by = {item = "oe-catenary-pole", count = 1},
     minable = {mining_time = 0.1, result = "oe-catenary-pole"},
     max_health = 100,
     localised_name = {"entity-name.oe-catenary-pole"},
     localised_description = {"entity-description.oe-catenary-pole"},
-    icons = {{icon = "__base__/graphics/icons/medium-electric-pole.png", icon_size = 64, icon_mipmaps = 4, tint = {r = 1, g = 1, b = 0.7, a = 1}}},
+    icons = catenary_pole_icons,
     subgroup = "train-transport",
 
     picture = {
       sheet = {
-        shift = {x = 1, y = -1.5},
+        shift = {x = 0, y = -1.5},
         filename = graphics .. "catenary-pole/test-sheet2.png",
         priority = "extra-high",
-        width = 96,
-        height = 128
+        width = 96 * 2,
+        height = 128 * 2,
+        scale = 0.5
       }
     }
   }  --[[@as data.SimpleEntityWithOwnerPrototype]]
 }
 
+-- dummy placement entity for placement restrictions, immediately replaced by the real one in control.lua
+local catenary_pole_placer = {
+  type = "rail-signal",
+  name = "oe-catenary-pole-placer",
+  collision_box = {{-0.15, -0.15}, {0.15, 0.15}},
+  selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
+  subgroup = "oe-other",
+  icons = catenary_pole_icons,
+  localised_name = {"entity-name.oe-catenary-pole"},
+  localised_description = {"entity-description.oe-catenary-pole"},
 
-
--- simple-entity for graphics
-local catenary_pole_graphics = data_util.mimic(catenary_pole, {
-  type = "simple-entity-with-owner",
-  name = "oe-catenary-pole-graphics",
-  flags = {"not-rotatable"},
-  collision_box = {{-0.35, -0.35}, {0.35, 0.35}},
-  --selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
-  random_variation_on_create = false,
-  pictures = {
-    sheet = {
-      variation_count = 8,
-      filename = graphics .. "catenary-pole/direction-8.png",
-      priority = "extra-high",
-      size = 76,
-      shift = util.by_pixel(-0.5, -0.5),
-      scale = 0.5
-    }
-  }
-})
-
--- dummy placement entity for placement restrictions, immediatley replaced by the real one in control.lua
-local catenary_pole_placer = generate_placer(catenary_pole, "rail-signal", {
-  flags = data.raw["rail-signal"]["rail-signal"].flags,
+  flags = {"placeable-neutral", "player-creation", "building-direction-8-way", "filter-directions"},
   animation = data.raw["rail-signal"]["rail-signal"].animation,
-})
+
+  placeable_by = {item = "oe-catenary-pole", count = 1}  -- makes Q and blueprints work. place_result must still be set on the item
+}  --[[@as data.RailSignalPrototype]]
 
 local catenary_pole_item = {
   type = "item",
   name = "oe-catenary-pole",
-  icons = catenary_pole.icons,
-  icon_size = catenary_pole.icon_size,
-  icon_mipmaps = catenary_pole.icon_mipmaps,
+  icons = catenary_pole_icons,
   subgroup = "train-transport",
   order = "a[train-system]-z[ovehead-electrification]-a",
   place_result = catenary_pole_placer.name,
   stack_size = 50
 }
-
 local catenary_pole_recipe = {
   type = "recipe",
   name = "oe-catenary-pole",
@@ -268,7 +277,7 @@ local catenary_pole_recipe = {
   result = "oe-catenary-pole"
 }
 
-data:extend{catenary_pole, catenary_pole_graphics, catenary_pole_placer, catenary_pole_item, catenary_pole_recipe}
+data:extend{catenary_pole_placer, catenary_pole_item, catenary_pole_recipe}
 
 
 -- [[ internal fuel ]] --
@@ -330,7 +339,6 @@ data:extend{
       {type = "unlock-recipe", recipe = "oe-electric-locomotive"},
       {type = "unlock-recipe", recipe = "oe-transformer"},
       {type = "unlock-recipe", recipe = "oe-catenary-pole"}
-      -- double sided pole, combo catenary & big power pole
     },
     prerequisites = {"railway", "electric-engine", "electric-energy-distribution-1"},
     ---@type data.TechnologyUnit
@@ -391,6 +399,7 @@ data:extend{
 
 -- [[ Catenary wire sprites ]] --
 
+--[[
 local wire_sprite = {
   type = "sprite",
   name = "oe-catenary-wire",
@@ -420,3 +429,4 @@ wire_debug_sprite.filename = graphics .. "debug-wire.png"
 wire_debug_sprite.hr_version.filename = graphics .. "hr-debug-wire.png"
 
 data:extend{wire_sprite, wire_shadow_sprite, wire_debug_sprite}
+]]

@@ -26,7 +26,7 @@ end
 
 -- gets the rails that a catenary pole is next to
 ---@param pole LuaEntity
----@param direction? defines.direction
+---@param direction defines.direction
 ---@return LuaEntity[]? rails the rails, or nil if the pole is not next to a rail
 ---@return defines.direction? direction the direction the rail is in, or nil if no rail was found
 local function get_adjacent_rails(pole, direction)
@@ -55,63 +55,14 @@ local function get_adjacent_rails(pole, direction)
   elseif direction == defines.direction.northwest then
     pos.x = pos.x + 1
     pos.y = pos.y - 1
-  else  -- no direction given, search for a rail clockwise (orthogonal first, then diagonal)
-    for iter_dir = 0, 6, 2 do
-      local rails, found_dir = get_adjacent_rails(pole, iter_dir)
-      if #rails > 0 then
-        return rails, found_dir
-      end
-    end
-    if not is_big(pole) then  -- if no orthogonal dir found (and not a big pole), try diagonal
-      for iter_dir = 1, 7, 2 do
-        local rails, found_dir = get_adjacent_rails(pole, iter_dir)
-        if #rails > 0 then
-          return rails, found_dir
-        end
-      end
-    end
-    return nil, nil  -- no rail found
+  else
+    error("no direction given to get_adjacent_rails")
   end
 
   -- todo: handle ghosts
   return pole.surface.find_entities_filtered{position = pos, type = {"straight-rail", "curved-rail"}}, direction
 end
 
---[[
--- places the appropriate graphics entity for that direction at the position of the pole
----@param pole LuaEntity              the pole to create graphics for
----@param direction defines.direction directions for graphics to face
-local function create_pole_graphics(pole, direction)
-  local graphics_entity = pole.surface.create_entity{
-    name = pole.name .. "-graphics",
-    position = pole.position,
-    direction = direction,  -- factorio rounds down for 4-direciton entities apparently, cool!
-    force = pole.force,
-    player = pole.last_user
-  }
-  graphics_entity.graphics_variation = direction + 1  -- does nothing for 4-way graphics entities (intended)
-  return graphics_entity
-end
-
--- removes the graphics entity if it exists
----@param pole LuaEntity
-local function remove_pole_graphics(pole)
-  local graphics_entity = pole.surface.find_entity(pole.name .. "-graphics", pole.position)
-  if graphics_entity then
-    graphics_entity.destroy()
-  end
-end
-
--- creates the graphics entity if its missing
----@param pole LuaEntity
----@param direction defines.direction
-local function ensure_pole_graphics(pole, direction)
-  local graphics_entity = pole.surface.find_entity(pole.name .. "-graphics", pole.position)
-  if not graphics_entity then
-    graphics_entity = create_pole_graphics(pole, direction)
-  end
-end
-]]
 
 --- gets the catenary network data for an electric_network_id, <br>
 --- and creates the entry in the global table if one does not exist for the electric network
@@ -158,7 +109,7 @@ local function on_electric_pole_placed(this_pole)
 
   -- if this is a transformer, create catenary network
   local network
-  if this_pole.name == "oe-transformer" then
+  if identify.is_transformer_pole(this_pole) then
     network = get_or_create_catenary_network(this_pole.electric_network_id)
     add_transformer_to_network(network, this_pole)
   end
@@ -166,7 +117,7 @@ local function on_electric_pole_placed(this_pole)
   -- returns true if the placement is invalid
   local quit = RailMarcher.march_to_connect(rails, this_pole)
   if quit then
-    if this_pole.name == "oe-transformer" then
+    if identify.is_transformer_pole(this_pole) then
       -- remove the transformer from the network
       remove_transformer_from_network(network, this_pole)
     end
@@ -212,7 +163,7 @@ local function on_electric_pole_removed(this_pole)
   -- if a transformer was removed, remove the global data for it
   -- TODO: remove locomotive interfaces (could we just delete them? locomotive updating will do a valid check)
   --  when leaving a network a locomotive will remove it's interface anyways
-  if this_pole.name == "oe-transformer" then
+  if identify.is_transformer_pole(this_pole) then
     local network = get_or_create_catenary_network(this_pole.electric_network_id)
     remove_transformer_from_network(network, this_pole)
     -- the update_catenary_network function should remove the data if this was the last transformer
@@ -248,49 +199,32 @@ end
 ---@param entity LuaEntity      the placer entity (or ghost of it)
 ---@return LuaEntity -          the real entity that got placed (may be a ghost)
 function CatenaryManager.handle_placer(entity)
-  local name, direction, new_entity
   local placer_name = entity.name ~= "entity-ghost" and entity.name or entity.ghost_name
+  local data = {  -- needs name & direction
+    position = entity.position,
+    force = entity.force,
+    player = entity.last_user,
+  }
 
   if placer_name == "oe-catenary-pole-placer" then
-    direction = entity.direction
-    name = "oe-normal-catenary-pole-" .. ((direction % 2 == 0) and "orthogonal" or "diagonal")
+    data.name = "oe-normal-catenary-pole-" .. ((entity.direction % 2 == 0) and "orthogonal" or "diagonal")
+    data.direction = entity.direction
   elseif placer_name == "oe-transformer-placer" then
-    name = "oe-transformer-graphics"
-    direction = (entity.direction + 4) % 8  -- train stop directions are opposite rail signals.
+    data.name = "oe-transformer"
+    data.direction = (entity.direction + 4) % 8  -- train stop directions are opposite rail signals.
   end
 
   if entity.name == "entity-ghost" then
-    -- create ghost for the s-e-w-o
-    new_entity = entity.surface.create_entity{
-      name = "entity-ghost",
-      inner_name = name,
-      direction = direction,
-      position = entity.position,
-      force = entity.force,
-      player = entity.last_user,
-    }
-    if not new_entity or not new_entity.valid then error("creating catenary entity (" .. serpent.line(data) .. ") failed unexpectedly") end
-
-    -- remove the placer ghost
-    entity.destroy()
-
-    --
-  else
-    -- create the s-e-w-o
-    new_entity = entity.surface.create_entity{
-      name = name,
-      direction = direction,
-      position = entity.position,
-      force = entity.force,
-      player = entity.last_user,
-    }
-    if not new_entity or not new_entity.valid then error("creating catenary entity (" .. serpent.line(data) .. ") failed unexpectedly") end
-
-    -- remove the placer entity
-    entity.destroy()
-
-    -- handle placing the electric pole
+    data.inner_name = data.name
+    data.name = "entity-ghost"
   end
+
+  -- create the s-e-w-o
+  local new_entity = entity.surface.create_entity(data)
+  if not new_entity or not new_entity.valid then error("creating catenary entity (" .. serpent.line(data) .. ") failed unexpectedly") end
+
+  -- remove the placer entity
+  entity.destroy()
 
   return new_entity
 end
@@ -304,17 +238,20 @@ function CatenaryManager.on_pole_graphics_placed(pole_graphics)
   pole_graphics.rotatable = false
 
   -- get the 8-way direction of the pole
-  local direction
+  local direction, name
   if pole_graphics.name == "oe-normal-catenary-pole-orthogonal" then
     direction = pole_graphics.direction
+    name = "oe-catenary-electric-pole-" .. direction
   elseif pole_graphics.name == "oe-normal-catenary-pole-diagonal" then
-    direction = pole_graphics.direction + 1  -- i think
+    direction = pole_graphics.direction + 1
+    name = "oe-catenary-electric-pole-" .. direction
   else
-    direction = pole_graphics.direction      -- for transformer, idk
+    direction = pole_graphics.direction                      -- for transformer
+    name = "oe-transformer-electric-pole-" .. direction / 2  -- convert directions 0,2,4,6 to poles 0,1,2,3
   end
 
   local electric_pole = pole_graphics.surface.create_entity{
-    name = "oe-catenary-electric-pole-" .. direction,
+    name = name,
     direction = direction,
     position = pole_graphics.position,
     force = pole_graphics.force,
@@ -330,6 +267,10 @@ function CatenaryManager.on_pole_graphics_placed(pole_graphics)
     electric_pole.destroy()
     return reason
   end
+
+  -- placement was successful
+  global.pole_graphics_to_electric_pole[pole_graphics.unit_number] = electric_pole
+
   return nil
 end
 
@@ -337,20 +278,11 @@ end
 -- removes the hidden electric pole
 ---@param pole_graphics LuaEntity
 function CatenaryManager.on_pole_graphics_removed(pole_graphics)
-  -- find electric pole
-  local electric_poles = pole_graphics.surface.find_entities_filtered{
-    name = identify.electric_pole_names,
-    position = pole_graphics.position
-  }
-
-  if #electric_poles == 0 then  -- pole may already have been removed if it's placement by a player was canceled
-    return
-  end
-
-  local electric_pole = electric_poles[1]
+  local electric_pole = global.pole_graphics_to_electric_pole[pole_graphics.unit_number]
   on_electric_pole_removed(electric_pole)
   global.pole_directions[electric_pole.unit_number] = nil
   electric_pole.destroy()
+  global.pole_graphics_to_electric_pole[pole_graphics.unit_number] = nil
 end
 
 
