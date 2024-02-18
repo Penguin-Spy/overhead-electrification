@@ -6,12 +6,54 @@
 local data_util = require "prototypes.data_util"
 local graphics = data_util.graphics
 
+---@param base_picture data.SpriteParameters
+---@param rotation integer
+---@return data.Sprite
+local function get_picture_for_rotation(base_picture, rotation)
+  local picture = table.deepcopy(base_picture)  --[[@as data.Sprite]]
+  picture.y = picture.height * rotation
+  picture.hr_version.y = picture.hr_version.height * rotation
+  return picture
+end
+
+
 --[[ === Rail power transformer ===
 
 oe-transformer-electric-pole-[0..3]   -- hidden entity that does the electric network stuff (including showing wires)
                                       -- 4 copies of it, one for each direction
 oe-transformer                        -- simple entity that shows graphics and is blueprintable
 ]]
+
+---@type data.SpriteParameters
+local transformer_picture = {
+  filename = graphics .. "catenary-pole/transformer.png",
+  priority = "extra-high",
+  width = 96,
+  height = 135,
+  shift = {x = 0, y = -1},
+  hr_version = {
+    filename = graphics .. "catenary-pole/hr-transformer.png",
+    priority = "extra-high",
+    width = 192,
+    height = 270,
+    shift = {x = 0, y = -1},
+    scale = 0.5,
+  }
+}
+---@type data.SpriteParameters
+local transformer_rail_part = {
+  filename = graphics .. "catenary-pole/transformer-rail-part.png",
+  priority = "high",
+  width = 194,
+  height = 189,
+  hr_version = {
+    filename = graphics .. "catenary-pole/hr-transformer-rail-part.png",
+    priority = "high",
+    width = 386,
+    height = 377,
+    scale = 0.5,
+  },
+}
 
 local transformer_icons = {{icon = "__base__/graphics/icons/accumulator.png", icon_size = 64, icon_mipmaps = 4, tint = {r = 1, g = 1, b = 0.7, a = 1}}}
 local transformer_wire_connection_points = {
@@ -67,14 +109,17 @@ local transformer_graphics = {
   icons = transformer_icons,
   subgroup = "train-transport",
 
+  integration_patch = {
+    north = get_picture_for_rotation(transformer_rail_part, 0),
+    east = get_picture_for_rotation(transformer_rail_part, 1),
+    south = get_picture_for_rotation(transformer_rail_part, 2),
+    west = get_picture_for_rotation(transformer_rail_part, 3)
+  },
   picture = {
-    sheet = {
-      filename = graphics .. "catenary-pole/direction-4.png",
-      priority = "extra-high",
-      size = 76,
-      shift = util.by_pixel(-0.5, -0.5),
-      scale = 0.5
-    }
+    north = get_picture_for_rotation(transformer_picture, 0),
+    east = get_picture_for_rotation(transformer_picture, 1),
+    south = get_picture_for_rotation(transformer_picture, 2),
+    west = get_picture_for_rotation(transformer_picture, 3)
   }
 }  --[[@as data.SimpleEntityWithOwnerPrototype]]
 
@@ -85,26 +130,27 @@ local transformer_placer = {
   collision_box = {{-0.7, -0.7}, {0.7, 0.7}},
   selection_box = {{-1, -1}, {1, 1}},
   build_grid_size = 2,
-  subgroup = "oe-other",
+  flags = {"placeable-neutral", "player-creation", "filter-directions"},
+  placeable_by = {item = "oe-transformer", count = 1},
   icons = transformer_icons,
   localised_name = {"entity-name.oe-transformer"},
   localised_description = {"entity-description.oe-transformer"},
+  subgroup = "oe-other",
 
   animation_ticks_per_frame = 1,
   chart_name = false,
-  flags = {"placeable-neutral", "player-creation", "building-direction-8-way", "filter-directions"},
-  rail_overlay_animations = data.raw["train-stop"]["train-stop"].rail_overlay_animations,
-  animations = {
-    north = {
-      filename = graphics .. "catenary-pole/direction-4.png",
-      priority = "extra-high",
-      size = 76,
-      shift = util.by_pixel(-0.5, -0.5),
-      scale = 0.5
-    }
+  rail_overlay_animations = {
+    north = get_picture_for_rotation(transformer_rail_part, 2),  -- train stop directions are opposite rail signals.
+    east = get_picture_for_rotation(transformer_rail_part, 3),
+    south = get_picture_for_rotation(transformer_rail_part, 0),
+    west = get_picture_for_rotation(transformer_rail_part, 1)
   },
-
-  placeable_by = {item = "oe-transformer", count = 1}
+  animations = {
+    north = get_picture_for_rotation(transformer_picture, 2),
+    east = get_picture_for_rotation(transformer_picture, 3),
+    south = get_picture_for_rotation(transformer_picture, 0),
+    west = get_picture_for_rotation(transformer_picture, 1)
+  }
 }
 
 local transformer_item = {
@@ -143,6 +189,23 @@ oe-normal-catenary-pole-diagonal
 oe-signal-catenary-pole               -- rail signal, does graphics for all 8 directions, selectable, circuit wireable, blueprintable
 oe-chain-catenary-pole                -- chain signal, does graphics for all 8 directions, selectable, circuit wireable, blueprintable
 ]]
+
+---@type data.SpriteParameters
+local catenary_pole_picture = {
+  filename = graphics .. "catenary-pole/normal-catenary-pole.png",
+  priority = "extra-high",
+  width = 96,
+  height = 128,
+  shift = {x = 0, y = -1.5},
+  hr_version = {
+    filename = graphics .. "catenary-pole/hr-normal-catenary-pole.png",
+    priority = "extra-high",
+    width = 192,
+    height = 256,
+    shift = {x = 0, y = -1.5},
+    scale = 0.5,
+  }
+}
 
 local catenary_pole_icons = {{icon = "__base__/graphics/icons/medium-electric-pole.png", icon_size = 64, icon_mipmaps = 4, tint = {r = 1, g = 1, b = 0.7, a = 1}}}
 local catenary_wire_connection_points = {
@@ -202,14 +265,10 @@ data:extend{
     subgroup = "train-transport",
 
     picture = {
-      sheet = {
-        shift = {x = 0, y = -1.5},
-        filename = graphics .. "catenary-pole/test-sheet.png",
-        priority = "extra-high",
-        width = 96 * 2,
-        height = 128 * 2,
-        scale = 0.5
-      }
+      north = get_picture_for_rotation(catenary_pole_picture, 0),
+      east = get_picture_for_rotation(catenary_pole_picture, 2),
+      south = get_picture_for_rotation(catenary_pole_picture, 4),
+      west = get_picture_for_rotation(catenary_pole_picture, 6)
     }
   }  --[[@as data.SimpleEntityWithOwnerPrototype]],
   {
@@ -227,17 +286,17 @@ data:extend{
     subgroup = "train-transport",
 
     picture = {
-      sheet = {
-        shift = {x = 0, y = -1.5},
-        filename = graphics .. "catenary-pole/test-sheet2.png",
-        priority = "extra-high",
-        width = 96 * 2,
-        height = 128 * 2,
-        scale = 0.5
-      }
+      north = get_picture_for_rotation(catenary_pole_picture, 1),
+      east = get_picture_for_rotation(catenary_pole_picture, 3),
+      south = get_picture_for_rotation(catenary_pole_picture, 5),
+      west = get_picture_for_rotation(catenary_pole_picture, 7)
     }
   }  --[[@as data.SimpleEntityWithOwnerPrototype]]
 }
+
+local catenary_pole_placer_animation = table.deepcopy(catenary_pole_picture)  --[[@as data.RotatedAnimation]]
+catenary_pole_placer_animation.direction_count = 8
+catenary_pole_placer_animation.hr_version.direction_count = 8
 
 -- dummy placement entity for placement restrictions, immediately replaced by the real one in control.lua
 local catenary_pole_placer = {
@@ -245,15 +304,14 @@ local catenary_pole_placer = {
   name = "oe-catenary-pole-placer",
   collision_box = {{-0.15, -0.15}, {0.15, 0.15}},
   selection_box = {{-0.5, -0.5}, {0.5, 0.5}},
-  subgroup = "oe-other",
-  icons = catenary_pole_icons,
+  flags = {"placeable-neutral", "player-creation", "building-direction-8-way", "filter-directions"},
+  placeable_by = {item = "oe-catenary-pole", count = 1},
   localised_name = {"entity-name.oe-catenary-pole"},
   localised_description = {"entity-description.oe-catenary-pole"},
+  icons = catenary_pole_icons,
+  subgroup = "oe-other",
 
-  flags = {"placeable-neutral", "player-creation", "building-direction-8-way", "filter-directions"},
-  animation = data.raw["rail-signal"]["rail-signal"].animation,
-
-  placeable_by = {item = "oe-catenary-pole", count = 1}  -- makes Q and blueprints work. place_result must still be set on the item
+  animation = catenary_pole_placer_animation,
 }  --[[@as data.RailSignalPrototype]]
 
 local catenary_pole_item = {
@@ -395,38 +453,3 @@ data:extend{
     }
   }
 }
-
-
--- [[ Catenary wire sprites ]] --
-
---[[
-local wire_sprite = {
-  type = "sprite",
-  name = "oe-catenary-wire",
-  filename = graphics .. "catenary-wire.png",
-  priority = "extra-high-no-scale",
-  flags = {"no-crop"},
-  width = 224,
-  height = 46,
-  hr_version = {
-    filename = graphics .. "hr-catenary-wire.png",
-    priority = "extra-high-no-scale",
-    flags = {"no-crop"},
-    width = 448,
-    height = 92,
-    scale = 0.5
-  }
-}
-
-local wire_shadow_sprite = table.deepcopy(wire_sprite)
-wire_shadow_sprite.name = "oe-catenary-wire-shadow"
-wire_shadow_sprite.filename = graphics .. "catenary-wire-shadow.png"
-wire_shadow_sprite.hr_version.filename = graphics .. "hr-catenary-wire-shadow.png"
-
-local wire_debug_sprite = table.deepcopy(wire_sprite)
-wire_debug_sprite.name = "oe-debug-wire"
-wire_debug_sprite.filename = graphics .. "debug-wire.png"
-wire_debug_sprite.hr_version.filename = graphics .. "hr-debug-wire.png"
-
-data:extend{wire_sprite, wire_shadow_sprite, wire_debug_sprite}
-]]
