@@ -260,6 +260,7 @@ function CatenaryManager.on_pole_graphics_placed(pole_graphics)
   if not electric_pole or not electric_pole.valid then error("creating catenary entity (" .. tostring(direction) .. ") failed unexpectedly") end
 
   global.pole_directions[electric_pole.unit_number] = direction
+  global.pole_graphics_to_electric_pole[pole_graphics.unit_number] = electric_pole
   local reason = on_electric_pole_placed(electric_pole)
 
   if reason then  -- invalid pos for catenary pole
@@ -267,9 +268,6 @@ function CatenaryManager.on_pole_graphics_placed(pole_graphics)
     electric_pole.destroy()
     return reason
   end
-
-  -- placement was successful
-  global.pole_graphics_to_electric_pole[pole_graphics.unit_number] = electric_pole
 
   return nil
 end
@@ -279,10 +277,12 @@ end
 ---@param pole_graphics LuaEntity
 function CatenaryManager.on_pole_graphics_removed(pole_graphics)
   local electric_pole = global.pole_graphics_to_electric_pole[pole_graphics.unit_number]
-  on_electric_pole_removed(electric_pole)
-  global.pole_directions[electric_pole.unit_number] = nil
-  electric_pole.destroy()
-  global.pole_graphics_to_electric_pole[pole_graphics.unit_number] = nil
+  if electric_pole and electric_pole.valid then  -- the electric pole may have already been removed if the placement was invalid
+    on_electric_pole_removed(electric_pole)
+    global.pole_directions[electric_pole.unit_number] = nil
+    electric_pole.destroy()
+    global.pole_graphics_to_electric_pole[pole_graphics.unit_number] = nil
+  end
 end
 
 
