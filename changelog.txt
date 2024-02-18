@@ -1,4 +1,12 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.0
+Date: 18.02.2024
+  Features:
+    - Reworked internal catenary pole logic, making them behave more intuitively (rotatable & blueprintable)
+  Graphics:
+    - Added better placeholder graphics for catenary poles & transformers
+
+---------------------------------------------------------------------------------------------------
 Version: 0.0.4
 Date: 04.12.2023
   Features:

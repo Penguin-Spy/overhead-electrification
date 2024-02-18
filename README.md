@@ -1,15 +1,11 @@
-> **Warning**  
-> THIS MOD IS IN BETA, DO NOT INSTALL IT INTO AN ACTUAL WORLD!! it's just here for testing.  
-> backwards support/compatibility is not guaranteed for this version (i'm serious it could break stuff in a lot of weird ways)  
-
 # Overhead Electrification (Realistic Electric Trains)
 Adds electric trains that are powered by overhead catenary lines. Designed to use minimal scripting for maximum performance. Integrates smoothly into vanilla gameplay & progression, and (will have) technology/recipe compatibility with various overhaul mods.  
 
 Graphics are placeholder (obviously), I plan to create my own (including the locomotive), but if you feel like making some assets that'd be cool!  
-Translations are also welcome, although the mod is in alpha so the stuff you need to translate might change; check back later once the mod is fully released.  
+Translations are also welcome, although the mod is in beta so the stuff you need to translate might change; check back later once the mod is fully released.  
 
 ## planned features:
-- catenary poles with built-in signals, double catenary poles
+- catenary poles with built-in signals
 - regenerative braking (wow!)
 - [x] overlay for viewing what rails are powered
 - compat with various overhaul mods:
@@ -30,7 +26,7 @@ Translations are also welcome, although the mod is in alpha so the stuff you nee
   - [Fluidic Power](https://mods.factorio.com/mod/FluidicPower)? that'd be cool
 
 # License
-Copyright © Penguin_Spy 2023  
+Copyright © Penguin_Spy 2023-2024  
 
 This Source Code Form is subject to the terms of the Mozilla Public
 License, v. 2.0. If a copy of the MPL was not distributed with this

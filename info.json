@@ -1,6 +1,6 @@
 {
   "name": "overhead-electrification",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "title": "Overhead Electrification (Realistic Electric Trains)",
   "description": "Adds electric trains that are powered by overhead catenary lines. Designed to use minimal scripting for maximum performance.",
   "author": "Penguin_Spy",
