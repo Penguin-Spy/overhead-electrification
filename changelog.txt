@@ -1,4 +1,17 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.1
+Date: 18.02.2024
+  Features:
+    - Added sounds & effects for damaging, destroying, and running into catenary poles & transformers
+    - Added corpses, water reflections, and resistances for catenary poles & transformers
+  Bugfixes:
+    - Made internal entites immune to fire, preventing weird behavior and crashes
+    - Rewrote some locomotive update logic to prevent electric interfaces from being left behind when transformers are removed or destroyed
+    - Fixed a floating point precision error that caused locomotive energy buffers to not completly fill until it tried to move
+    - Fixed a catastrophic typo that prevented back_mover locomotives from being updated or iterated properly
+    - i honestly have no idea how that one didn't cause a single crash in any of my testing
+
+---------------------------------------------------------------------------------------------------
 Version: 0.1.0
 Date: 18.02.2024
   Features:

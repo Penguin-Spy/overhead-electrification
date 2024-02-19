@@ -34,11 +34,11 @@ local RIDING_STATE_NOTHING       = defines.riding.acceleration.nothing
 ---| 0 POWER_STATE_NEUTRAL
 ---| 1 POWER_STATE_MOVING
 ---| 2 POWER_STATE_BRAKING
-local POWER_STATE_NEUTRAL = 0  -- stopped or a mover in the opposite direction of current travel
-local POWER_STATE_MOVING  = 1  -- a mover in the current direction of travel
-local POWER_STATE_BRAKING = 2  -- all locomotives contribute to braking
+local POWER_STATE_NEUTRAL = 0        -- stopped or a mover in the opposite direction of current travel
+local POWER_STATE_MOVING  = 1        -- a mover in the current direction of travel
+local POWER_STATE_BRAKING = 2        -- all locomotives contribute to braking
 
-local YOTTAJOULE = 10 ^ 24  -- 1000000000000000000000000
+local YOTTAJOULE          = 10 ^ 24  -- 1000000000000000000000000
 
 
 local function remove_train(train_id)
@@ -243,34 +243,44 @@ local function update_locomotive(data, rails)
 
   -- check network
   if current_network_id then
-    -- if we were in a different network (or no network)
-    if not cached_network_id or cached_network_id ~= current_network_id then
-      local network = global.catenary_networks[current_network_id]
-      data.electric_network_id = current_network_id
+    local network = global.catenary_networks[current_network_id]
+    -- if current network isn't headless
+    if network then
+      -- create interface if we don't have one (and set the power state)
+      if not (interface and interface.valid) then
+        interface = locomotive.surface.create_entity{
+          name = locomotive.name .. "-oe-interface",
+          position = network.transformers[1].position,
+          force = locomotive.force
+        }
+        if not (interface and interface.valid) then error("creating locomotive interface failed unexpectedly") end
+        data.interface = interface
+        set_interface_power(interface, data.power_state, locomotive.prototype.max_energy_usage)
+      end
 
-      if interface and interface.valid then  -- if we have an interface
-        if not network then                  -- and new network is headless, destroy it
-          interface.destroy()
-          interface = nil
-          data.interface = nil
-        else  -- and new network is headfull, teleport it (to whichever the first transformer is)
-          interface.teleport(network.transformers[1].position)
-        end
-      else               -- if we don't have an interface
-        if network then  -- and new network is headfull, create one (at whichever the first transformer is)
-          interface = locomotive.surface.create_entity{
-            name = locomotive.name .. "-oe-interface",
-            position = network.transformers[1].position,
-            force = locomotive.force
-          }
-          if not (interface and interface.valid) then error("creating locomotive interface failed unexpectedly") end
-          data.interface = interface
-          set_interface_power(interface, data.power_state, locomotive.prototype.max_energy_usage)
-        end
+      -- if we weren't in current_network before
+      if cached_network_id ~= current_network_id then
+        -- move it to the new network's transformer
+        interface.teleport(network.transformers[1].position)
+        data.electric_network_id = current_network_id
+      end
+
+      --
+    else  -- if current network is headless
+      -- remove interface if we have one
+      if interface then
+        if interface.valid then interface.destroy() end
+        interface = nil
+        data.interface = nil
       end
     end
+
+    -- if a network has multiple transformers & the first one is removed,
+    -- CatenaryManger's remove_transformer_from_network teleports all the interfaces to the new first transformer
+
+    -- current_network_id is nil
   elseif cached_network_id then  -- make sure we're not in a network
-    if interface then interface.destroy() end
+    if interface and interface.valid then interface.destroy() end
     interface = nil
     data.interface = nil
     data.electric_network_id = nil
@@ -284,13 +294,14 @@ local function update_locomotive(data, rails)
   end
 
   -- if we have an interface that's full
-  if interface.energy >= interface.electric_buffer_size then
+  if interface.energy >= interface.electric_buffer_size - 1 then
     if not data.is_burning then  -- and we aren't powered, become powered
       local burner = locomotive.burner
       ---@diagnostic disable-next-line: assign-type-mismatch this is literally just wrong, this does work
       burner.currently_burning = "oe-internal-fuel"
       burner.remaining_burning_fuel = YOTTAJOULE
       data.is_burning = true
+      interface.energy = interface.electric_buffer_size  -- EEI buffer doesn't like to fully charge when created with 0 power usage
     end
 
     -- if we are powered but we shouldn't be
@@ -313,11 +324,11 @@ function TrainManager.update_train(train_data)
 
   local rails = train.get_rails()
   local front_movers = train_data.electric_front_movers
-  local back_movers = train_data.electric_front_movers
+  local back_movers = train_data.electric_back_movers
   for i = 1, #front_movers do
     update_locomotive(global.locomotives[front_movers[i].unit_number], rails)
   end
-  for i = 1, #train_data.electric_back_movers do
+  for i = 1, #back_movers do
     update_locomotive(global.locomotives[back_movers[i].unit_number], rails)
   end
 end

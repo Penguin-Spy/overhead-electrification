@@ -1,3 +1,6 @@
+> **Note**  
+> This mod is in beta, and while the main functionality is settled, there may still be crashes. Use with caution, and set your autosaves to be frequent.
+
 # Overhead Electrification (Realistic Electric Trains)
 Adds electric trains that are powered by overhead catenary lines. Designed to use minimal scripting for maximum performance. Integrates smoothly into vanilla gameplay & progression, and (will have) technology/recipe compatibility with various overhaul mods.  
 

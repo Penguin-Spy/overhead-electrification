@@ -38,7 +38,7 @@ for _, locomotive in pairs(data.raw["locomotive"]) do
           --render_no_network_icon = true,                   -- (default), will show up on the transformer
           --render_no_power_icon = true                      -- (default), will show up on the transformer
         },
-        energy_usage = locomotive_power .. "W",  -- set by script to match the locomotive anyways, this is just the default
+        energy_usage = "0W",  -- set by script to match the locomotive anyways, this is just the default
         picture = {
           filename = "__core__/graphics/empty.png",
           priority = "extra-high",

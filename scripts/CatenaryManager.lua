@@ -92,7 +92,20 @@ end
 ---@param network catenary_network_data
 ---@param transformer LuaEntity
 local function remove_transformer_from_network(network, transformer)
+  local was_first = network.transformers[1] == transformer
   util.remove_from_list(network.transformers, transformer)
+
+  -- if this transformer was the 1st one, the locomotive interfaces need to be moved
+  if was_first then
+    -- find all EEIs on the transformer (assumes no other mods put any here)
+    local interfaces = transformer.surface.find_entities_filtered{position = transformer.position, type = "electric-energy-interface"}
+    local next_transformer = network.transformers[1]
+    if next_transformer then  -- if there's another transformer, move them all there
+      for _, interface in pairs(interfaces) do
+        interface.teleport(next_transformer.position)
+      end
+    end  -- otherwise there's no transformers left and the network will be removed
+  end
 end
 
 
