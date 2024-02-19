@@ -5,6 +5,7 @@
 
 local data_util = require "prototypes.data_util"
 local graphics = data_util.graphics
+local sounds = require("__base__.prototypes.entity.sounds")
 
 ---@param base_picture data.SpriteParameters
 ---@param rotation integer
@@ -89,7 +90,8 @@ for i = 0, 3 do
       priority = "extra-high",
       width = 1,
       height = 1
-    }
+    },
+    resistances = {{type = "fire", percent = 100}}
   }  --[[@as data.ElectricPolePrototype]]}
 end
 
@@ -104,6 +106,7 @@ local transformer_graphics = {
   placeable_by = {item = "oe-transformer", count = 1},
   minable = {mining_time = 0.1, result = "oe-transformer"},
   max_health = 200,
+  resistances = {{type = "fire", percent = 90}},
   localised_name = {"entity-name.oe-transformer"},
   localised_description = {"entity-description.oe-transformer"},
   icons = transformer_icons,
@@ -120,7 +123,13 @@ local transformer_graphics = {
     east = get_picture_for_rotation(transformer_picture, 1),
     south = get_picture_for_rotation(transformer_picture, 2),
     west = get_picture_for_rotation(transformer_picture, 3)
-  }
+  },
+  water_reflection = data.raw["electric-pole"]["substation"].water_reflection,
+  damaged_trigger_effect = data.raw["electric-pole"]["substation"].damaged_trigger_effect,
+  dying_explosion = "substation-explosion",
+  corpse = "substation-remnants",
+  working_sound = data.raw["electric-pole"]["substation"].working_sound,
+  vehicle_impact_sound = sounds.generic_impact
 }  --[[@as data.SimpleEntityWithOwnerPrototype]]
 
 -- dummy placement entity for placement restrictions for the player, immediately replaced by the real one in control.lua
@@ -244,7 +253,8 @@ for i = 0, 7 do
       priority = "extra-high",
       width = 1,
       height = 1
-    }
+    },
+    resistances = {{type = "fire", percent = 100}}
   }  --[[@as data.ElectricPolePrototype]]}
 end
 
@@ -259,6 +269,7 @@ data:extend{
     placeable_by = {item = "oe-catenary-pole", count = 1},
     minable = {mining_time = 0.1, result = "oe-catenary-pole"},
     max_health = 100,
+    resistances = {{type = "fire", percent = 100}},
     localised_name = {"entity-name.oe-catenary-pole"},
     localised_description = {"entity-description.oe-catenary-pole"},
     icons = catenary_pole_icons,
@@ -269,7 +280,12 @@ data:extend{
       east = get_picture_for_rotation(catenary_pole_picture, 2),
       south = get_picture_for_rotation(catenary_pole_picture, 4),
       west = get_picture_for_rotation(catenary_pole_picture, 6)
-    }
+    },
+    water_reflection = data.raw["electric-pole"]["medium-electric-pole"].water_reflection,
+    damaged_trigger_effect = data.raw["electric-pole"]["medium-electric-pole"].damaged_trigger_effect,
+    dying_explosion = "medium-electric-pole-explosion",
+    corpse = "medium-electric-pole-remnants",
+    vehicle_impact_sound = sounds.generic_impact
   }  --[[@as data.SimpleEntityWithOwnerPrototype]],
   {
     type = "simple-entity-with-owner",
@@ -280,6 +296,7 @@ data:extend{
     placeable_by = {item = "oe-catenary-pole", count = 1},
     minable = {mining_time = 0.1, result = "oe-catenary-pole"},
     max_health = 100,
+    resistances = {{type = "fire", percent = 100}},
     localised_name = {"entity-name.oe-catenary-pole"},
     localised_description = {"entity-description.oe-catenary-pole"},
     icons = catenary_pole_icons,
@@ -290,7 +307,12 @@ data:extend{
       east = get_picture_for_rotation(catenary_pole_picture, 3),
       south = get_picture_for_rotation(catenary_pole_picture, 5),
       west = get_picture_for_rotation(catenary_pole_picture, 7)
-    }
+    },
+    water_reflection = data.raw["electric-pole"]["medium-electric-pole"].water_reflection,
+    damaged_trigger_effect = data.raw["electric-pole"]["medium-electric-pole"].damaged_trigger_effect,
+    dying_explosion = "medium-electric-pole-explosion",
+    corpse = "medium-electric-pole-remnants",
+    vehicle_impact_sound = sounds.generic_impact
   }  --[[@as data.SimpleEntityWithOwnerPrototype]]
 }
 

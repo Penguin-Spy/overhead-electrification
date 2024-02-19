@@ -14,9 +14,10 @@ locomotive.burner = {
   fuel_inventory_size = 0,  -- 0 is valid and means no slots appear
   fuel_category = "oe-internal-fuel"
 }
-locomotive.max_power = "800kW"  -- vanilla locomotive is 600
-locomotive.max_speed = 2        -- vanilla is 1.2
-locomotive.weight = 1200        -- vanilla is 2000 for loco, 1000 for wagons
+locomotive.max_power = "800kW"                              -- vanilla locomotive is 600
+locomotive.max_speed = 2                                    -- vanilla is 1.2
+locomotive.weight = 1200                                    -- vanilla is 2000 for loco, 1000 for wagons
+locomotive.color = {r = 0.07, g = 0.92, b = 0.92, a = 0.5}  -- cyan
 
 local locomotive_item = table.deepcopy(data.raw["item-with-entity-data"]["locomotive"])
 locomotive_item.name = "oe-electric-locomotive"

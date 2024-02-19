@@ -44,7 +44,8 @@ for _, locomotive in pairs(data.raw["locomotive"]) do
           priority = "extra-high",
           width = 1,
           height = 1
-        }
+        },
+        resistances = {{type = "fire", percent = 100}}
       })
 
       data:extend{locomotive_interface}

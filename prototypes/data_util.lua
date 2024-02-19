@@ -152,10 +152,7 @@ local function mimic(entity_prototype, properties)
     icon_mipmaps = entity_prototype.icon_mipmaps,
     subgroup = "oe-other",
     order = "oe-internal",
-    --collision_box = {{0, 0}, {0, 0}},
-    selection_box = {{-0.5, -0.5}, {0.5, 0.5}},  -- remove for not debugging
-    selectable_in_game = true,                   -- false for not debugging
-    collision_mask = {},                         -- collide with nothing (anything can be placed overtop it)
+    collision_mask = {},  -- collide with nothing (anything can be placed overtop it)
     flags = {}
   }
 
