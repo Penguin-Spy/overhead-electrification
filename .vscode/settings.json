@@ -14,6 +14,9 @@
   "Lua.runtime.version": "Lua 5.2",
   "Lua.runtime.special": {
     "__object_name": "type"
+  },
+  "[factorio-locale]": {
+    "editor.unicodeHighlight.ambiguousCharacters": false
   }
   // when opening the workspace, other people will have to choose "Configure workspace for Factorio" or whatever the notification says
   // that will auto-generate the settings items for paths on their local filesystem

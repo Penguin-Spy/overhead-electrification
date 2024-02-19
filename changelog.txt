@@ -1,6 +1,12 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.2
+Date: 19.02.2024
+  Locale:
+    - Added Ukrainian translation, thanks to MetenBouldry
+
+---------------------------------------------------------------------------------------------------
 Version: 0.1.1
-Date: 18.02.2024
+Date: 19.02.2024
   Features:
     - Added sounds & effects for damaging, destroying, and running into catenary poles & transformers
     - Added corpses, water reflections, and resistances for catenary poles & transformers
