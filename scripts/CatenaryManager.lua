@@ -28,7 +28,6 @@ end
 ---@param pole LuaEntity
 ---@param direction defines.direction
 ---@return LuaEntity[]? rails the rails, or nil if the pole is not next to a rail
----@return defines.direction? direction the direction the rail is in, or nil if no rail was found
 local function get_adjacent_rails(pole, direction)
   local pos = pole.position
   local offset = is_big(pole) and 1.5 or 1
@@ -59,8 +58,7 @@ local function get_adjacent_rails(pole, direction)
     error("no direction given to get_adjacent_rails")
   end
 
-  -- todo: handle ghosts
-  return pole.surface.find_entities_filtered{position = pos, type = {"straight-rail", "curved-rail"}}, direction
+  return pole.surface.find_entities_filtered{position = pos, type = {"straight-rail", "curved-rail"}}
 end
 
 
@@ -115,9 +113,9 @@ end
 ---@return string|nil removal_reason string if the placement should be canceled, or nil if success
 local function on_electric_pole_placed(this_pole)
   -- figure out what direction we're facing and get the adjacent rail for searching for neighbors
-  local rails, direction = get_adjacent_rails(this_pole, global.pole_directions[this_pole.unit_number])
-  if not rails or #rails == 0 or not direction then  -- no adjacent rail found
-    return "oe-invalid-pole-position"
+  local rails = get_adjacent_rails(this_pole, global.pole_directions[this_pole.unit_number])
+  if not rails or #rails == 0 then  -- no adjacent rail found
+    return nil
   end
 
   -- if this is a transformer, create catenary network
@@ -141,16 +139,11 @@ local function on_electric_pole_placed(this_pole)
 end
 
 
--- when any (non-ghost) rail is placed. checks updating status of nearby catenary poles
----@param rail LuaEntity
-function CatenaryManager.on_rail_placed(rail)
-
-end
-
--- reconnects `pole` to all its neighboring poles, ignoring `ignore_pole`
+-- reconnects `pole` to all its neighboring poles, ignoring `ignore_pole` and`ignore_rail` during marching
 ---@param pole LuaEntity
----@param ignore_pole LuaEntity
-local function reconnect(pole, ignore_pole)
+---@param ignore_pole LuaEntity?
+---@param ignore_rail LuaEntity?
+local function reconnect(pole, ignore_pole, ignore_rail)
   -- unpower all rails powered by the other pole
   for rail_id, powering_pole in pairs(global.pole_powering_rail) do
     if powering_pole == pole then
@@ -159,14 +152,13 @@ local function reconnect(pole, ignore_pole)
   end
 
   -- march to connect from the other pole
-  local rails, direction = get_adjacent_rails(pole, global.pole_directions[pole.unit_number])
-  if not rails or #rails == 0 or not direction then
-    --error("neighbor pole in invalid position unexpectedly")
+  local rails = get_adjacent_rails(pole, global.pole_directions[pole.unit_number])
+  if not rails or #rails == 0 then
     return  -- this can happen normally if the rail for that pole was removed
   end
-  local quit = RailMarcher.march_to_connect(rails, pole, ignore_pole)
-  if quit then
-    error("neighbor pole in invalid connection position unexpectedly")
+  local quit = RailMarcher.march_to_connect(rails, pole, ignore_pole, ignore_rail)
+  if quit then  -- this can happen if two poles are placed too close & then a rail connecting them is placed
+    return
   end
 end
 
@@ -174,8 +166,7 @@ end
 ---@param this_pole LuaEntity
 local function on_electric_pole_removed(this_pole)
   -- if a transformer was removed, remove the global data for it
-  -- TODO: remove locomotive interfaces (could we just delete them? locomotive updating will do a valid check)
-  --  when leaving a network a locomotive will remove it's interface anyways
+  -- when leaving a network a locomotive will remove it's interface
   if identify.is_transformer_pole(this_pole) then
     local network = get_or_create_catenary_network(this_pole.electric_network_id)
     remove_transformer_from_network(network, this_pole)
@@ -200,10 +191,38 @@ local function on_electric_pole_removed(this_pole)
 end
 
 
--- TODO: disconnect catenary poles that are connected above this rail
+-- when any (non-ghost) rail is placed. checks updating status of nearby catenary poles
+---@param rail LuaEntity
+function CatenaryManager.on_rail_placed(rail)
+  local front_poles, back_poles = RailMarcher.find_adjacent_poles(rail, false)
+  ---@cast front_poles LuaEntity[]
+
+  for _, front_pole in pairs(front_poles) do
+    reconnect(front_pole)
+  end
+  if back_poles then
+    for _, back_pole in pairs(back_poles) do
+      reconnect(back_pole)
+    end
+  end
+
+  -- mark the newly placed rail as powered
+  if front_poles[1] then
+    global.pole_powering_rail[rail.unit_number] = front_poles[1]
+  elseif back_poles and back_poles[1] then
+    global.pole_powering_rail[rail.unit_number] = back_poles[1]
+  end
+end
+
 ---@param rail LuaEntity
 function CatenaryManager.on_rail_removed(rail)
-  global.pole_powering_rail[rail.unit_number] = nil
+  local rail_id = rail.unit_number  --[[@as integer]]
+  local pole = global.pole_powering_rail[rail_id]
+  if pole and pole.valid then
+    pole.disconnect_neighbour()  -- disconnect all poles first to properly split electric networks
+    reconnect(pole, nil, rail)
+  end
+  global.pole_powering_rail[rail_id] = nil
 end
 
 

@@ -177,6 +177,8 @@ local function find_adjacent_poles(rail, single)
   end
   error("cannot find ajacent poles: '" .. rail.name .. "' is not a straight-rail or curved-rail")
 end
+-- used in CatenaryManager when rails are placed
+RailMarcher.find_adjacent_poles = find_adjacent_poles
 
 
 -- if both poles have compatable networks (both dont have transformers and are different), <br>
@@ -218,8 +220,9 @@ local insert = table.insert
 ---@param distance integer                    the remaining distance to travel
 ---@param this_pole LuaEntity                 the original pole
 ---@param ignore_pole LuaEntity?              a pole to ignore for calling on_pole
+---@param ignore_rail LuaEntity?              a rail to ignore for marching
 ---@return boolean? quit
-local function march_rail(rail, direction, path, distance, this_pole, ignore_pole)
+local function march_rail(rail, direction, path, distance, this_pole, ignore_pole, ignore_rail)
   -- check LEFT, STRAIGHT, and RIGHT rails for poles
   --  when a pole is found (don't march past that rail)
   --  call the on_pole callback
@@ -236,7 +239,7 @@ local function march_rail(rail, direction, path, distance, this_pole, ignore_pol
   --  if enough distance left, check far point for poles
   local left_rail = get_next_rail(rail, direction, LEFT)  --[[@as LuaEntity|nil|false]]
   local left_path, left_direction  --[[@type nil, nil]]
-  if left_rail then
+  if left_rail and left_rail ~= ignore_rail then
     local rail_id = left_rail.unit_number
     left_path = copy(path)
     insert(left_path, rail_id)
@@ -289,7 +292,7 @@ local function march_rail(rail, direction, path, distance, this_pole, ignore_pol
 
   local right_rail = get_next_rail(rail, direction, RIGHT)  --[[@as LuaEntity|nil|false]]
   local right_path, right_direction  --[[@type nil, nil]]
-  if right_rail then
+  if right_rail and right_rail ~= ignore_rail then
     local rail_id = right_rail.unit_number
     right_path = copy(path)
     insert(right_path, rail_id)
@@ -345,7 +348,7 @@ local function march_rail(rail, direction, path, distance, this_pole, ignore_pol
 
   -- STRAIGHT is a straight rail
   local straight_rail = get_next_rail(rail, direction, STRAIGHT)  --[[@as LuaEntity|nil|false]]
-  if straight_rail then
+  if straight_rail and straight_rail ~= ignore_rail then
     local rail_id = straight_rail.unit_number
     insert(path, rail_id)
 
@@ -375,17 +378,17 @@ local function march_rail(rail, direction, path, distance, this_pole, ignore_pol
   --  pass a copy of the path array to the LEFT/RIGHT marches, straight gets the one we got (works as long as we run straight last i think -- MAKE SURE TO TEST THIS)
   --  pass the on_pole callback, this_pole, and ignore_pole
 
-  if straight_rail and distance > 1 then
-    local quit = march_rail(straight_rail, direction, path, distance - 1, this_pole, ignore_pole)
+  if straight_rail and straight_rail ~= ignore_rail and distance > 1 then
+    local quit = march_rail(straight_rail, direction, path, distance - 1, this_pole, ignore_pole, ignore_rail)
     if quit then return quit end
   end
 
-  if left_rail and distance > 4 then  -- if a rail was found, the dir and path will not be nil
-    local quit = march_rail(left_rail, left_direction  --[[@as(integer)]], left_path  --[[@as(integer[])]], distance - 4, this_pole, ignore_pole)
+  if left_rail and left_rail ~= ignore_rail and distance > 4 then  -- if a rail was found, the dir and path will not be nil
+    local quit = march_rail(left_rail, left_direction  --[[@as(integer)]], left_path  --[[@as(integer[])]], distance - 4, this_pole, ignore_pole, ignore_rail)
     if quit then return quit end
   end
-  if right_rail and distance > 4 then
-    local quit = march_rail(right_rail, right_direction  --[[@as(integer)]], right_path  --[[@as(integer[])]], distance - 4, this_pole, ignore_pole)
+  if right_rail and right_rail ~= ignore_rail and distance > 4 then
+    local quit = march_rail(right_rail, right_direction  --[[@as(integer)]], right_path  --[[@as(integer[])]], distance - 4, this_pole, ignore_pole, ignore_rail)
     if quit then return quit end
   end
 end
@@ -396,69 +399,72 @@ end
 ---@param rails LuaEntity[]                   the rails to march from
 ---@param this_pole LuaEntity                 the original pole
 ---@param ignore_pole LuaEntity?              a pole to ignore for calling on_pole
+---@param ignore_rail LuaEntity?              a rail to ignore for marching
 ---@return boolean? quit                      true if the placement is invalid
-function RailMarcher.march_to_connect(rails, this_pole, ignore_pole)
+function RailMarcher.march_to_connect(rails, this_pole, ignore_pole, ignore_rail)
   for _, rail in pairs(rails) do
-    if rail.type == "straight-rail" then
-      -- find_adjacent_poles, return true if other poles
-      local poles = find_adjacent_poles(rail, false)
-      util.remove_from_list(poles, this_pole)
-      if #poles > 0 then
-        return true
-      end
-      -- march_rail(rail, FRONT) and march_rail(rail, BACK), returning true if either return quit=true
-      if march_rail(rail, FRONT, {}, 7, this_pole, ignore_pole)
-          or march_rail(rail, BACK, {}, 7, this_pole, ignore_pole) then
-        return true
-      end
-      -- if placement succeded, mark adjacent rail as powered by this pole
-      global.pole_powering_rail[rail.unit_number] = this_pole
-
-      --
-    else  -- rail.type == "curved-rail"
-      local f, b = find_adjacent_poles(rail, false)
-
-      -- check which end we're on, return true if other poles on the end we're on
-      local on_orthogonal_end = util.remove_from_list(f, this_pole)
-      if on_orthogonal_end then  -- on "FRONT" end of curved-rail
-        -- if there were other poles on this end, block placement
-        if #f > 0 then
+    if rail ~= ignore_rail then
+      if rail.type == "straight-rail" then
+        -- find_adjacent_poles, return true if other poles
+        local poles = find_adjacent_poles(rail, false)
+        util.remove_from_list(poles, this_pole)
+        if #poles > 0 then
           return true
         end
-        -- march in the "FRONT" direction, and if there are poles there, block placement
-        if march_rail(rail, FRONT, {}, 7, this_pole, ignore_pole) then
+        -- march_rail(rail, FRONT) and march_rail(rail, BACK), returning true if either return quit=true
+        if march_rail(rail, FRONT, {}, 7, this_pole, ignore_pole, ignore_rail)
+            or march_rail(rail, BACK, {}, 7, this_pole, ignore_pole, ignore_rail) then
           return true
         end
-        -- if there's a back pole, connect to it & don't march
-        if b and b[1] and b[1] ~= ignore_pole then
-          on_pole(b[1], {}, 4, this_pole)
-        else
-          -- march in the "BACK" direction (with less distance), no blocking because anything on that end is far enough away
-          march_rail(rail, BACK, {}, 3, this_pole, ignore_pole)
-        end
+        -- if placement succeded, mark adjacent rail as powered by this pole
+        global.pole_powering_rail[rail.unit_number] = this_pole
 
         --
-      else  -- on "BACK" end of curved-rail
-        -- if there were other poles on this end, block placement
-        util.remove_from_list(b, this_pole)
-        if #b > 0 then
-          return true
-        end
-        -- march in the "BACK" direction, and if there are poles there, block placement
-        if march_rail(rail, BACK, {}, 7, this_pole, ignore_pole) then
-          return true
-        end
-        -- if there's a front pole, connect to it & don't march
-        if f and f[1] and f[1] ~= ignore_pole then
-          on_pole(f[1], {}, 4, this_pole)
-        else
-          -- march in the "FRONT" direction (with less distance), no blocking because anything on that end is far enough away
-          march_rail(rail, FRONT, {}, 3, this_pole, ignore_pole)
-        end
-      end
+      else  -- rail.type == "curved-rail"
+        local f, b = find_adjacent_poles(rail, false)
 
-      -- if placement succeded, mark adjacent rail as powered by this pole
-      global.pole_powering_rail[rail.unit_number] = this_pole
+        -- check which end we're on, return true if other poles on the end we're on
+        local on_orthogonal_end = util.remove_from_list(f, this_pole)
+        if on_orthogonal_end then  -- on "FRONT" end of curved-rail
+          -- if there were other poles on this end, block placement
+          if #f > 0 then
+            return true
+          end
+          -- march in the "FRONT" direction, and if there are poles there, block placement
+          if march_rail(rail, FRONT, {}, 7, this_pole, ignore_pole, ignore_rail) then
+            return true
+          end
+          -- if there's a back pole, connect to it & don't march
+          if b and b[1] and b[1] ~= ignore_pole then
+            on_pole(b[1], {}, 4, this_pole)
+          else
+            -- march in the "BACK" direction (with less distance), no blocking because anything on that end is far enough away
+            march_rail(rail, BACK, {}, 3, this_pole, ignore_pole, ignore_rail)
+          end
+
+          --
+        else  -- on "BACK" end of curved-rail
+          -- if there were other poles on this end, block placement
+          util.remove_from_list(b, this_pole)
+          if #b > 0 then
+            return true
+          end
+          -- march in the "BACK" direction, and if there are poles there, block placement
+          if march_rail(rail, BACK, {}, 7, this_pole, ignore_pole, ignore_rail) then
+            return true
+          end
+          -- if there's a front pole, connect to it & don't march
+          if f and f[1] and f[1] ~= ignore_pole then
+            on_pole(f[1], {}, 4, this_pole)
+          else
+            -- march in the "FRONT" direction (with less distance), no blocking because anything on that end is far enough away
+            march_rail(rail, FRONT, {}, 3, this_pole, ignore_pole, ignore_rail)
+          end
+        end
+
+        -- if placement succeded, mark adjacent rail as powered by this pole
+        global.pole_powering_rail[rail.unit_number] = this_pole
+      end
     end
   end
 
