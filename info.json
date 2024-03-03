@@ -1,6 +1,6 @@
 {
   "name": "overhead-electrification",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "title": "Overhead Electrification (Realistic Electric Trains)",
   "description": "Adds electric trains that are powered by overhead catenary lines. Integrates smoothly with both vanilla and modpack gameplay. Designed to use minimal scripting for maximum performance.",
   "author": "Penguin_Spy",
@@ -12,6 +12,7 @@
     "? se-space-trains",
     "? bzaluminum",
     "? bzlead",
-    "? bztin"
+    "? bztin",
+    "? Krastorio2"
   ]
 }

@@ -20,3 +20,7 @@ end
 if mods["bzaluminum"] or mods["bzlead"] or mods["bztin"] then
   require "prototypes.compat.bz"
 end
+
+if mods["Krastorio2"] then
+  require "prototypes.compat.krastorio"
+end
