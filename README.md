@@ -14,7 +14,7 @@ Translations are also welcome, although the mod is in beta so the stuff you need
 - compat with various overhaul mods:
   - [x] Space Exploration (space elevator, space rails, spaceship)
   - [x] AAI Industry (adjust recipes)
-  - Krastorio (i haven't played it but i've heard it changes vehicle stats significantly)
+  - [x] Krastorio (adjust recipes, rebalance electric locomotive stats)
   - [x] BZ materials (adjust recipes to use the materials: aluminum, lead, tin)
   - planetfall's resource mods
   - Bobs/Angels because somebody asked nicely :)

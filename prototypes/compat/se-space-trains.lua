@@ -41,6 +41,17 @@ if settings.startup["oe-se-space-train-compat"].value then
     end
 
     data.raw["assembling-machine"]["space-train-battery-charging-station"] = nil
+    -- make sure to remove this reference if any mod has made it pastable to anything (attach notes, for example, makes everything copy-pastable to make notes pastable)
+    log(serpent.block(defines.prototypes.entity))
+    for t in pairs(defines.prototypes.entity) do
+      for _, proto in pairs(data.raw[t]) do
+        local pastable = proto.additional_pastable_entities
+        if pastable and type(pastable) == "table" then
+          util.remove_from_list(pastable, "space-train-battery-charging-station")
+        end
+      end
+    end
+
   else
     data.raw.recipe["space-train-battery-charging-station"].hidden = true
     data.raw.recipe["space-train-battery-pack"].hidden = true
