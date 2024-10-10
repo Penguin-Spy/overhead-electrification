@@ -3,6 +3,7 @@ Version: 0.1.5
 Date: 08.05.2024
   Bugfixes:
     - Fixed a crash when loading with SE Space Trains and Attach Notes
+    - Fixed low-res transformer rail part image (thanks to nikolateslax on GitHub)
 
 ---------------------------------------------------------------------------------------------------
 Version: 0.1.4
